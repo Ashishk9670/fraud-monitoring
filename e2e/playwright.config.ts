@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const API_KEY = process.env.API_KEY ?? 'dev-local-key';
+
 // The stack (docker compose + app) must already be running; BASE_URL points at the app.
 export default defineConfig({
   testDir: './tests',
@@ -9,6 +11,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     baseURL: process.env.BASE_URL ?? 'http://localhost:8080',
+    extraHTTPHeaders: { 'X-API-Key': API_KEY },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
