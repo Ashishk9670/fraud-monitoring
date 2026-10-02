@@ -17,6 +17,10 @@ spring:
       port: 6379
   kafka:
     bootstrap-servers: localhost:9092
+    template:
+      observation-enabled: true     # trace/metric Kafka produce + consume (used when tracing is enabled)
+    listener:
+      observation-enabled: true
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -54,6 +58,12 @@ fraud:
     high-value-amount: 10000
   redis:
     feature-ttl: PT24H
+  security:
+    # Comma separated list of accepted API keys. The default is for local development ONLY.
+    api-keys: ${FRAUD_API_KEYS:dev-local-key}
+    max-request-size: 256KB
+    max-batch-size: 500
+    max-graph-ql-depth: 8
 
 analytics:
   store: clickhouse        # clickhouse | memory
@@ -76,4 +86,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  # OpenTelemetry tracing (OTLP/HTTP). Off by default; enable with TRACING_ENABLED=true and point at a collector.
+  tracing:
+    enabled: ${TRACING_ENABLED:false}
+    sampling:
+      probability: ${TRACING_SAMPLE_RATE:0.1}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}

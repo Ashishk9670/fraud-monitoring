@@ -15,6 +15,7 @@ import com.example.fraud.model.Severity;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
 class AlertConsumerTest {
@@ -31,8 +32,10 @@ class AlertConsumerTest {
         List<FraudAlert> received = new ArrayList<>();
         broadcaster.stream().subscribe(received::add);
 
-        new AlertConsumer(cases, analytics, broadcaster).onAlert(Json.MAPPER.writeValueAsString(alert()));
+        SimpleMeterRegistry metrics = new SimpleMeterRegistry();
+        new AlertConsumer(cases, analytics, broadcaster, metrics).onAlert(Json.MAPPER.writeValueAsString(alert()));
 
+        assertThat(metrics.counter("fraud.alerts", "rule", "R", "severity", "HIGH").count()).isEqualTo(1.0);
         verify(cases).openCase(any());
         verify(analytics).indexAlert(any());
         assertThat(received).hasSize(1);
@@ -48,14 +51,14 @@ class AlertConsumerTest {
         List<FraudAlert> received = new ArrayList<>();
         broadcaster.stream().subscribe(received::add);
 
-        new AlertConsumer(cases, analytics, broadcaster).onAlert(Json.MAPPER.writeValueAsString(alert()));
+        new AlertConsumer(cases, analytics, broadcaster, new SimpleMeterRegistry()).onAlert(Json.MAPPER.writeValueAsString(alert()));
         assertThat(received).hasSize(1);
     }
 
     @Test
     void malformedMessageIsSkipped() {
         CaseService cases = mock(CaseService.class);
-        new AlertConsumer(cases, mock(AnalyticsStore.class), new AlertBroadcaster()).onAlert("not json");
+        new AlertConsumer(cases, mock(AnalyticsStore.class), new AlertBroadcaster(), new SimpleMeterRegistry()).onAlert("not json");
         verify(cases, never()).openCase(any());
     }
 }

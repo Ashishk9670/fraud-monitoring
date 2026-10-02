@@ -1,7 +1,6 @@
 package com.example.fraud.simulator;
 
 import com.example.fraud.messaging.TransactionPublisher;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

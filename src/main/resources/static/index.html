@@ -26,6 +26,8 @@
 <header>
   <h1>Fraud Analyst Dashboard</h1>
   <div>
+    <input id="apikey" data-testid="apikey" type="password" placeholder="API key" size="14" autocomplete="off">
+    <button id="save-key" data-testid="save-key">Set key</button>
     <span id="status" data-testid="status">connecting...</span>
     <button id="burst" data-testid="burst-btn">Simulate fraud burst</button>
   </div>
@@ -47,9 +49,18 @@
   </section>
 </main>
 <script>
+const getKey = () => { try { return localStorage.getItem('fraudApiKey') || ''; } catch (e) { return ''; } };
+const authHeaders = (h = {}) => ({ ...h, 'X-API-Key': getKey() });
+const keyInput = document.getElementById('apikey');
+keyInput.value = getKey();
+document.getElementById('save-key').onclick = () => {
+  try { localStorage.setItem('fraudApiKey', keyInput.value.trim()); } catch (e) { /* storage unavailable */ }
+  location.reload();
+};
 const gql = async (query, variables) => {
-  const r = await fetch('/graphql', { method:'POST', headers:{'Content-Type':'application/json'},
+  const r = await fetch('/graphql', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
     body: JSON.stringify({ query, variables }) });
+  if (r.status === 401) throw new Error('Unauthorized: set a valid API key');
   const j = await r.json();
   if (j.errors) throw new Error(j.errors.map(e => e.message).join('; '));
   return j.data;
@@ -87,12 +98,13 @@ async function loadRules() {
       `<tr><td>${esc(r.rule)}</td><td>${r.count}</td></tr>`).join('');
   } catch (e) { console.warn(e); }
 }
+window.addEventListener('unhandledrejection', e => console.warn(e.reason && e.reason.message));
 
 function subscribe() {
   const status = document.getElementById('status');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/graphql`, 'graphql-transport-ws');
-  ws.onopen = () => ws.send(JSON.stringify({ type: 'connection_init' }));
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'connection_init', payload: { apiKey: getKey() } }));
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'connection_ack') {
@@ -105,6 +117,7 @@ function subscribe() {
       addAlert(m.payload.data.alertStream); loadCases(); loadRules();
     }
   };
+  ws.onerror = () => { status.textContent = 'unauthorized or offline'; };
   ws.onclose = () => {
     status.textContent = 'reconnecting...'; status.classList.remove('live');
     setTimeout(subscribe, 2000);
@@ -112,7 +125,7 @@ function subscribe() {
 }
 
 document.getElementById('burst').onclick = () =>
-  fetch('/api/simulator/fraud-burst?accountId=acct-ui-' + Date.now(), { method: 'POST' });
+  fetch('/api/simulator/fraud-burst?accountId=acct-ui-' + Date.now(), { method: 'POST', headers: authHeaders() });
 document.getElementById('refresh').onclick = () => { loadCases(); loadRules(); };
 loadCases(); loadRules(); subscribe();
 </script>

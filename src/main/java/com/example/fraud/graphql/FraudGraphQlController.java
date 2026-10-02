@@ -31,9 +31,13 @@ public class FraudGraphQlController {
         this.broadcaster = broadcaster;
     }
 
+    private static int clamp(Integer limit, int dflt) {
+        return limit == null ? dflt : Math.max(1, Math.min(limit, 500));
+    }
+
     @QueryMapping
     public List<FraudCase> cases(@Argument CaseStatus status, @Argument Integer limit) {
-        return cases.list(status, limit == null ? 50 : limit);
+        return cases.list(status, clamp(limit, 50));
     }
 
     @QueryMapping("case")
@@ -43,7 +47,7 @@ public class FraudGraphQlController {
 
     @QueryMapping
     public List<FraudAlert> alerts(@Argument Integer limit) {
-        return analytics.recentAlerts(limit == null ? 50 : limit);
+        return analytics.recentAlerts(clamp(limit, 50));
     }
 
     @QueryMapping
@@ -54,7 +58,7 @@ public class FraudGraphQlController {
     @QueryMapping
     public List<AccountRisk> topRiskAccounts(@Argument Integer sinceMinutes, @Argument Integer limit) {
         return analytics.topRiskAccounts(Duration.ofMinutes(sinceMinutes == null ? 60 : sinceMinutes),
-                limit == null ? 10 : limit);
+                clamp(limit, 10));
     }
 
     @MutationMapping

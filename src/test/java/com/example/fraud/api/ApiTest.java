@@ -4,7 +4,6 @@ import static io.restassured.RestAssured.given;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasItem;
 
 import com.example.fraud.support.TestInfra;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,15 +56,19 @@ class ApiTest {
                         && streams.getKafkaStreams().state() == org.apache.kafka.streams.KafkaStreams.State.RUNNING);
     }
 
+    private static io.restassured.specification.RequestSpecification api() {
+        return given().header("X-API-Key", "test-key");
+    }
+
     private String burst(String account, int count) {
-        given().queryParam("accountId", account).queryParam("count", count)
+        api().queryParam("accountId", account).queryParam("count", count)
                 .post("/api/simulator/fraud-burst").then().statusCode(202);
         return account;
     }
 
     @Test
     void ingestValidTransactionIsAccepted() {
-        given().contentType(ContentType.JSON).body(Map.of(
+        api().contentType(ContentType.JSON).body(Map.of(
                         "accountId", "rest-1", "merchantId", "m", "amount", 12.5, "currency", "USD", "location", "US"))
                 .post("/api/transactions")
                 .then().statusCode(202).body("status", equalTo("ACCEPTED"));
@@ -73,17 +76,17 @@ class ApiTest {
 
     @Test
     void ingestInvalidTransactionIsRejected() {
-        given().contentType(ContentType.JSON).body(Map.of("accountId", "", "amount", -1))
+        api().contentType(ContentType.JSON).body(Map.of("accountId", "", "amount", -1))
                 .post("/api/transactions").then().statusCode(400);
     }
 
     @Test
     void blocklistLifecycleOverRest() {
-        given().contentType(ContentType.JSON).body(Map.of("type", "ACCOUNT", "value", "bl-1", "reason", "test"))
+        api().contentType(ContentType.JSON).body(Map.of("type", "ACCOUNT", "value", "bl-1", "reason", "test"))
                 .post("/api/blocklist").then().statusCode(201);
-        given().get("/api/blocklist/ACCOUNT/bl-1").then().statusCode(200).body("blocked", equalTo(true));
-        given().delete("/api/blocklist/ACCOUNT/bl-1").then().statusCode(204);
-        given().get("/api/blocklist/ACCOUNT/bl-1").then().body("blocked", equalTo(false));
+        api().get("/api/blocklist/ACCOUNT/bl-1").then().statusCode(200).body("blocked", equalTo(true));
+        api().delete("/api/blocklist/ACCOUNT/bl-1").then().statusCode(204);
+        api().get("/api/blocklist/ACCOUNT/bl-1").then().body("blocked", equalTo(false));
     }
 
     @Test
@@ -112,7 +115,7 @@ class ApiTest {
                 .path("topRiskAccounts").entityList(Map.class).satisfies(l -> assertThat(l).isNotEmpty());
 
         // Redis-backed features were updated by the topology (fake here).
-        given().get("/api/accounts/" + account + "/features").then().statusCode(200)
+        api().get("/api/accounts/" + account + "/features").then().statusCode(200)
                 .body("features.txn_count", equalTo("12"));
     }
 
@@ -146,9 +149,9 @@ class ApiTest {
     @Test
     void blocklistedAccountProducesCriticalAlert() {
         String account = "blocked-" + UUID.randomUUID();
-        given().contentType(ContentType.JSON).body(Map.of("type", "ACCOUNT", "value", account))
+        api().contentType(ContentType.JSON).body(Map.of("type", "ACCOUNT", "value", account))
                 .post("/api/blocklist").then().statusCode(201);
-        given().contentType(ContentType.JSON).body(Map.of(
+        api().contentType(ContentType.JSON).body(Map.of(
                         "accountId", account, "merchantId", "m", "amount", 5, "currency", "USD", "location", "US"))
                 .post("/api/transactions").then().statusCode(202);
         await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
@@ -163,6 +166,7 @@ class ApiTest {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/graphql"))
                 .header("Content-Type", "application/json").header("Accept", "text/event-stream")
+                .header("X-API-Key", "test-key")
                 .POST(HttpRequest.BodyPublishers.ofString(
                         "{\"query\":\"subscription { alertStream { accountId rule severity } }\"}"))
                 .build();
@@ -199,7 +203,7 @@ class ApiTest {
         try { Thread.sleep(1000); } catch (InterruptedException ignored) { }
 
         // HIGH_VALUE alert is MEDIUM -> filtered out; the burst alert is HIGH -> delivered.
-        given().contentType(ContentType.JSON).body(Map.of(
+        api().contentType(ContentType.JSON).body(Map.of(
                         "accountId", account, "merchantId", "m", "amount", 50000, "currency", "USD", "location", "US"))
                 .post("/api/transactions").then().statusCode(202);
         String burstAccount = burst("sev-" + UUID.randomUUID(), 12);
@@ -209,6 +213,55 @@ class ApiTest {
                     .path("alerts[*].accountId").entityList(String.class).get().contains(burstAccount);
         });
         sub.cancel(true);
+    }
+
+    @Test
+    void apiRequiresAnApiKey() {
+        given().contentType(ContentType.JSON).body(Map.of("accountId", "a")).post("/api/transactions").then().statusCode(401);
+        given().header("X-API-Key", "wrong").get("/api/blocklist/ACCOUNT/x").then().statusCode(401);
+        given().contentType(ContentType.JSON).body(Map.of("query", "{ cases { id } }")).post("/graphql").then().statusCode(401);
+        given().get("/actuator/prometheus").then().statusCode(401);
+    }
+
+    @Test
+    void bearerTokenIsAcceptedAsApiKey() {
+        given().header("Authorization", "Bearer test-key").get("/api/blocklist/ACCOUNT/x").then().statusCode(200);
+        given().header("Authorization", "Bearer test-key").contentType(ContentType.JSON)
+                .body(Map.of("query", "{ cases(limit: 1) { id } }")).post("/graphql").then().statusCode(200);
+    }
+
+    @Test
+    void oversizedBodyAndBatchAreRejected() {
+        String big = "x".repeat(300 * 1024);
+        api().contentType(ContentType.JSON).body("{\"accountId\":\"" + big + "\"}")
+                .post("/api/transactions").then().statusCode(413);
+        List<Map<String, Object>> batch = java.util.stream.IntStream.range(0, 501).mapToObj(i -> Map.<String, Object>of(
+                "accountId", "b", "merchantId", "m", "amount", 1, "currency", "USD", "location", "US")).toList();
+        api().contentType(ContentType.JSON).body(batch).post("/api/transactions/batch").then().statusCode(413);
+    }
+
+    @Test
+    void fieldLengthAndAmountLimitsAreValidated() {
+        api().contentType(ContentType.JSON).body(Map.of("accountId", "a".repeat(65), "merchantId", "m",
+                "amount", 5, "currency", "USD", "location", "US")).post("/api/transactions").then().statusCode(400);
+        api().contentType(ContentType.JSON).body(Map.of("accountId", "a", "merchantId", "m",
+                "amount", 2_000_000_000L, "currency", "USD", "location", "US")).post("/api/transactions").then().statusCode(400);
+    }
+
+    @Test
+    void deepGraphQlQueryIsRejected() {
+        String deep = "{ cases { " + "a { ".repeat(10) + "x" + " }".repeat(10) + " } }";
+        api().contentType(ContentType.JSON).body(Map.of("query", deep)).post("/graphql")
+                .then().statusCode(200).body("errors", org.hamcrest.Matchers.notNullValue());
+    }
+
+    @Test
+    void alertMetricsAreExposedInPrometheusFormat() {
+        String account = burst("metrics-" + UUID.randomUUID(), 12);
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                assertThat(api().get("/actuator/prometheus").then().statusCode(200).extract().asString())
+                        .contains("fraud_alerts_total{").contains("rule=\"VELOCITY_MULTI_LOCATION\"")
+                        .contains("fraud_transactions_published_total"));
     }
 
     @Test

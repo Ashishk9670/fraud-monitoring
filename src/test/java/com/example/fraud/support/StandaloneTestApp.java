@@ -1,7 +1,6 @@
 package com.example.fraud.support;
 
 import com.example.fraud.FraudMonitoringApplication;
-import java.util.List;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.kafka.test.EmbeddedKafkaBroker;
 import org.springframework.kafka.test.EmbeddedKafkaZKBroker;

@@ -18,3 +18,11 @@ analytics:
   store: memory
 simulator:
   enabled: false
+fraud:
+  security:
+    api-keys: test-key
+management:
+  prometheus:
+    metrics:
+      export:
+        enabled: true   # @SpringBootTest disables metrics export by default

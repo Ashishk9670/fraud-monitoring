@@ -5,6 +5,7 @@ import com.example.fraud.cases.CaseService;
 import com.example.fraud.config.Topics;
 import com.example.fraud.json.Json;
 import com.example.fraud.model.FraudAlert;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -17,11 +18,14 @@ public class AlertConsumer {
     private final CaseService cases;
     private final AnalyticsStore analytics;
     private final AlertBroadcaster broadcaster;
+    private final MeterRegistry metrics;
 
-    public AlertConsumer(CaseService cases, AnalyticsStore analytics, AlertBroadcaster broadcaster) {
+    public AlertConsumer(CaseService cases, AnalyticsStore analytics, AlertBroadcaster broadcaster,
+                         MeterRegistry metrics) {
         this.cases = cases;
         this.analytics = analytics;
         this.broadcaster = broadcaster;
+        this.metrics = metrics;
     }
 
     @KafkaListener(topics = Topics.FRAUD_ALERTS, groupId = "alert-sink")
@@ -38,6 +42,7 @@ public class AlertConsumer {
 
     void handle(FraudAlert alert) {
         cases.openCase(alert);
+        metrics.counter("fraud.alerts", "rule", alert.rule(), "severity", alert.severity().name()).increment();
         try {
             analytics.indexAlert(alert);
         } catch (RuntimeException e) {
