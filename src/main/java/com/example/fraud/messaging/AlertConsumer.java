@@ -1,0 +1,48 @@
+package com.example.fraud.messaging;
+
+import com.example.fraud.analytics.AnalyticsStore;
+import com.example.fraud.cases.CaseService;
+import com.example.fraud.config.Topics;
+import com.example.fraud.json.Json;
+import com.example.fraud.model.FraudAlert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+
+/** Consumes the alerts topic: opens a case (Postgres), indexes into analytics, pushes to subscribers. */
+@Component
+public class AlertConsumer {
+    private static final Logger log = LoggerFactory.getLogger(AlertConsumer.class);
+    private final CaseService cases;
+    private final AnalyticsStore analytics;
+    private final AlertBroadcaster broadcaster;
+
+    public AlertConsumer(CaseService cases, AnalyticsStore analytics, AlertBroadcaster broadcaster) {
+        this.cases = cases;
+        this.analytics = analytics;
+        this.broadcaster = broadcaster;
+    }
+
+    @KafkaListener(topics = Topics.FRAUD_ALERTS, groupId = "alert-sink")
+    public void onAlert(String json) {
+        FraudAlert alert;
+        try {
+            alert = Json.MAPPER.readValue(json, FraudAlert.class);
+        } catch (Exception e) {
+            log.warn("Skipping malformed alert: {}", e.toString());
+            return;
+        }
+        handle(alert);
+    }
+
+    void handle(FraudAlert alert) {
+        cases.openCase(alert);
+        try {
+            analytics.indexAlert(alert);
+        } catch (RuntimeException e) {
+            log.warn("Analytics indexing failed for alert {}: {}", alert.id(), e.toString());
+        }
+        broadcaster.publish(alert);
+    }
+}

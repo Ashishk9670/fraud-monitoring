@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fraud Analyst Dashboard</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; background:var(--card); }
+  h1 { font-size:18px; margin:0; }
+  main { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:16px 20px; }
+  section { background:var(--card); border-radius:8px; padding:12px; overflow:auto; max-height:70vh; }
+  h2 { font-size:14px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:4px 6px; border-bottom:1px solid #334155; font-size:13px; }
+  .sev-CRITICAL { color:#f87171; font-weight:700 } .sev-HIGH { color:#fb923c; font-weight:700 }
+  .sev-MEDIUM { color:#facc15 } .sev-LOW { color:#a3e635 }
+  button { background:var(--accent); color:#0f172a; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; font-weight:600; }
+  #status { margin-right:12px; color:var(--muted); }
+  #status.live { color:#4ade80; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fraud Analyst Dashboard</h1>
+  <div>
+    <span id="status" data-testid="status">connecting...</span>
+    <button id="burst" data-testid="burst-btn">Simulate fraud burst</button>
+  </div>
+</header>
+<main>
+  <section>
+    <h2>Live alerts (<span id="alert-count" data-testid="alert-count">0</span>)</h2>
+    <table><thead><tr><th>Time</th><th>Account</th><th>Rule</th><th>Severity</th><th>Reason</th></tr></thead>
+      <tbody id="alerts" data-testid="alerts"></tbody></table>
+  </section>
+  <section>
+    <h2>Cases <button id="refresh" data-testid="refresh-btn" style="float:right">Refresh</button></h2>
+    <table><thead><tr><th>Account</th><th>Rule</th><th>Severity</th><th>Status</th><th></th></tr></thead>
+      <tbody id="cases" data-testid="cases"></tbody></table>
+  </section>
+  <section>
+    <h2>Alerts by rule (last hour)</h2>
+    <table><tbody id="rules" data-testid="rules"></tbody></table>
+  </section>
+</main>
+<script>
+const gql = async (query, variables) => {
+  const r = await fetch('/graphql', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ query, variables }) });
+  const j = await r.json();
+  if (j.errors) throw new Error(j.errors.map(e => e.message).join('; '));
+  return j.data;
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let alertCount = 0;
+
+function addAlert(a) {
+  alertCount++;
+  document.getElementById('alert-count').textContent = alertCount;
+  const tr = document.createElement('tr');
+  tr.dataset.testid = 'alert-row';
+  tr.setAttribute('data-testid', 'alert-row');
+  tr.innerHTML = `<td>${esc(new Date(a.createdAt).toLocaleTimeString())}</td><td>${esc(a.accountId)}</td>` +
+    `<td>${esc(a.rule)}</td><td class="sev-${esc(a.severity)}">${esc(a.severity)}</td><td>${esc(a.reason)}</td>`;
+  document.getElementById('alerts').prepend(tr);
+}
+
+async function loadCases() {
+  const d = await gql('{ cases(limit: 25) { id accountId rule severity status } }');
+  document.getElementById('cases').innerHTML = d.cases.map(c =>
+    `<tr data-testid="case-row"><td>${esc(c.accountId)}</td><td>${esc(c.rule)}</td>` +
+    `<td class="sev-${esc(c.severity)}">${esc(c.severity)}</td><td>${esc(c.status)}</td>` +
+    `<td><button data-id="${esc(c.id)}" class="review">Review</button></td></tr>`).join('');
+  document.querySelectorAll('button.review').forEach(b => b.onclick = async () => {
+    await gql('mutation($id: ID!) { updateCase(id:$id, status: IN_REVIEW) { id } }', { id: b.dataset.id });
+    loadCases();
+  });
+}
+
+async function loadRules() {
+  try {
+    const d = await gql('{ alertCountsByRule { rule count } }');
+    document.getElementById('rules').innerHTML = d.alertCountsByRule.map(r =>
+      `<tr><td>${esc(r.rule)}</td><td>${r.count}</td></tr>`).join('');
+  } catch (e) { console.warn(e); }
+}
+
+function subscribe() {
+  const status = document.getElementById('status');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/graphql`, 'graphql-transport-ws');
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'connection_init' }));
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'connection_ack') {
+      ws.send(JSON.stringify({ id: '1', type: 'subscribe', payload: {
+        query: 'subscription { alertStream { id accountId rule severity reason createdAt } }' } }));
+      status.textContent = 'live'; status.classList.add('live');
+    } else if (m.type === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong' }));
+    } else if (m.type === 'next' && m.payload.data && m.payload.data.alertStream) {
+      addAlert(m.payload.data.alertStream); loadCases(); loadRules();
+    }
+  };
+  ws.onclose = () => {
+    status.textContent = 'reconnecting...'; status.classList.remove('live');
+    setTimeout(subscribe, 2000);
+  };
+}
+
+document.getElementById('burst').onclick = () =>
+  fetch('/api/simulator/fraud-burst?accountId=acct-ui-' + Date.now(), { method: 'POST' });
+document.getElementById('refresh').onclick = () => { loadCases(); loadRules(); };
+loadCases(); loadRules(); subscribe();
+</script>
+</body>
+</html>

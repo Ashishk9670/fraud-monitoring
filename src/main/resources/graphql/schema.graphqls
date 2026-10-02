@@ -1,0 +1,52 @@
+enum Severity { LOW MEDIUM HIGH CRITICAL }
+enum CaseStatus { OPEN IN_REVIEW CONFIRMED_FRAUD FALSE_POSITIVE }
+
+type Alert {
+  id: ID!
+  accountId: String!
+  transactionId: String
+  rule: String!
+  severity: Severity!
+  score: Float!
+  reason: String!
+  transactionCount: Int!
+  locations: [String!]!
+  windowStart: String
+  windowEnd: String
+  createdAt: String!
+}
+
+type FraudCase {
+  id: ID!
+  alertId: String!
+  accountId: String!
+  rule: String!
+  severity: Severity!
+  score: Float!
+  reason: String!
+  transactionCount: Int!
+  status: CaseStatus!
+  assignee: String
+  notes: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+type RuleCount { rule: String! count: Int! }
+type AccountRisk { accountId: String! alertCount: Int! maxScore: Float! }
+
+type Query {
+  cases(status: CaseStatus, limit: Int = 50): [FraudCase!]!
+  case(id: ID!): FraudCase
+  alerts(limit: Int = 50): [Alert!]!
+  alertCountsByRule(sinceMinutes: Int = 60): [RuleCount!]!
+  topRiskAccounts(sinceMinutes: Int = 60, limit: Int = 10): [AccountRisk!]!
+}
+
+type Mutation {
+  updateCase(id: ID!, status: CaseStatus, assignee: String, notes: String): FraudCase!
+}
+
+type Subscription {
+  alertStream(minSeverity: Severity): Alert!
+}

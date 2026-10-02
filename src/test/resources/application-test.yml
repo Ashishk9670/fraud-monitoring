@@ -1,0 +1,20 @@
+# Docker-free test profile: embedded Kafka, H2 (PostgreSQL mode), in-memory analytics, fake Redis (see TestInfra).
+spring:
+  datasource:
+    url: jdbc:h2:mem:fraud;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  kafka:
+    bootstrap-servers: ${spring.embedded.kafka.brokers:localhost:9092}
+    streams:
+      application-id: fraud-test-${random.uuid}
+      state-dir: ${java.io.tmpdir}/fraud-streams-test-${random.uuid}
+  data:
+    redis:
+      repositories:
+        enabled: false
+analytics:
+  store: memory
+simulator:
+  enabled: false

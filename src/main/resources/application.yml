@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: fraud-monitoring
+  datasource:
+    url: jdbc:postgresql://localhost:5432/fraud
+    username: fraud
+    password: fraud
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+    consumer:
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      auto-offset-reset: earliest
+    streams:
+      application-id: fraud-monitoring-streams
+      properties:
+        # emit every windowed update (no record cache) so the "just triggered" alert is never coalesced away
+        statestore.cache.max.bytes: 0
+        commit.interval.ms: 200
+        default.deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
+  graphql:
+    graphiql:
+      enabled: true
+    websocket:
+      path: /graphql
+  mvc:
+    problemdetails:
+      enabled: true
+
+server:
+  port: 8080
+
+fraud:
+  rules:
+    window: PT1M
+    max-transactions: 5
+    min-distinct-locations: 2
+    high-value-amount: 10000
+  redis:
+    feature-ttl: PT24H
+
+analytics:
+  store: clickhouse        # clickhouse | memory
+  clickhouse:
+    url: http://localhost:8123
+    user: fraud
+    password: fraud
+    database: fraud
+
+simulator:
+  enabled: false
+  interval-ms: 500
+  burst-probability: 0.02
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info
