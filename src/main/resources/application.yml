@@ -30,6 +30,9 @@ spring:
         # emit every windowed update (no record cache) so the "just triggered" alert is never coalesced away
         statestore.cache.max.bytes: 0
         commit.interval.ms: 200
+        # Streams defaults to "latest": records published right after the app (re)joins the group, before the first
+        # fetch position is resolved, would be skipped. Always start from the beginning of an uncommitted partition.
+        auto.offset.reset: earliest
         default.deserialization.exception.handler: org.apache.kafka.streams.errors.LogAndContinueExceptionHandler
   graphql:
     graphiql:

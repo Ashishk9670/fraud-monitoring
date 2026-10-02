@@ -41,6 +41,8 @@ jobs:
           cache: maven
       # Testcontainers (Kafka, Redis, Postgres, ClickHouse) -- Docker is available on ubuntu-latest
       - run: mvn -B verify -Dtest='NoSuchTest' -Dsurefire.failIfNoSpecifiedTests=false
+      - name: Assert the Testcontainers ITs really ran (not skipped)
+        run: python3 .github/scripts/assert-tests-ran.py target/failsafe-reports FullStackIT 2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
