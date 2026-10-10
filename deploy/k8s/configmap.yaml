@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-monitoring
+  labels:
+    app.kubernetes.io/name: fraud-monitoring
+data:
+  # Point these at your managed/in-cluster Kafka, Redis, Postgres and ClickHouse.
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fraud
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  ANALYTICS_CLICKHOUSE_URL: http://clickhouse:8123
+  TRACING_ENABLED: "false"
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
