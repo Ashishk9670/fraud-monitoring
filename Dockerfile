@@ -10,8 +10,9 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -q -DskipTests package \
     && java -Djarmode=tools -jar target/fraud-monitoring-*.jar extract --layers --launcher --destination /workspace/layers
 
 # ---- runtime ----
-FROM eclipse-temurin:21-jre-alpine
-RUN addgroup -S -g 10001 app && adduser -S -u 10001 -G app -h /app app
+# glibc-based image: the RocksDB JNI library used by Kafka Streams needs libstdc++ (absent on Alpine)
+FROM eclipse-temurin:21-jre
+RUN groupadd --system --gid 10001 app && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app
 WORKDIR /app
 COPY --from=build --chown=app:app /workspace/layers/dependencies/ ./
 COPY --from=build --chown=app:app /workspace/layers/spring-boot-loader/ ./
