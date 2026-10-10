@@ -15,8 +15,10 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-      # unit tests + Docker-free API tests (embedded Kafka, H2, fake Redis)
-      - run: mvn -B verify -DskipITs=true -Dfailsafe.skip=true
+      - name: Format check (Spotless)
+        run: mvn -B spotless:check
+      # unit tests + Docker-free API tests (embedded Kafka, H2, fake Redis); fails below the Jacoco line-coverage gate
+      - run: mvn -B -Pcoverage-gate verify -Dfailsafe.skip=true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -56,24 +58,15 @@ jobs:
     needs: build-and-unit
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: maven
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: e2e/package-lock.json
-      - name: Start infrastructure
-        run: docker compose up -d --wait
-      - name: Build and start app
-        run: |
-          mvn -B -DskipTests package
-          nohup java -jar target/fraud-monitoring-*-SNAPSHOT.jar > app.log 2>&1 &
-          for i in $(seq 1 60); do curl -sf localhost:8080/actuator/health/liveness && exit 0; sleep 2; done
-          cat app.log; exit 1
+      - name: Start the real stack (Kafka, Redis, Postgres, ClickHouse + the app image)
+        run: docker compose --profile app up -d --build --wait
+      - name: Show running services
+        run: docker compose --profile app ps
       - name: Install Playwright
         working-directory: e2e
         run: npm ci && npx playwright install --with-deps chromium
@@ -87,9 +80,9 @@ jobs:
           path: |
             e2e/playwright-report
             e2e/test-results
-      - name: App log
+      - name: Compose logs
         if: failure()
-        run: cat app.log
+        run: docker compose --profile app logs --no-color
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile app down -v
