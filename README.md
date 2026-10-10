@@ -1,28 +1,32 @@
 # Real-Time Fraud / Transaction Monitoring
 
+[![CI](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/ci.yml/badge.svg)](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/codeql.yml/badge.svg)](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/codeql.yml)
+[![Trivy](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/trivy.yml/badge.svg)](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/trivy.yml)
+[![K8s manifests](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/k8s.yml/badge.svg)](https://github.com/Ashishk9670/fraud-monitoring/actions/workflows/k8s.yml)
+![Java 21](https://img.shields.io/badge/Java-21-blue)
+![Spring Boot 3.3](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen)
+
 Spring Boot 3.3 / Java 21 service that ingests payment transactions, detects fraud in real time with
 Kafka Streams, and exposes cases, alerts and a live alert stream to analysts via GraphQL and a small web dashboard.
 
 ## Architecture
 
-```
- REST  POST /api/transactions ─┐
- Simulator (scheduled / REST) ─┴─► Kafka topic `transactions` (key = accountId)
-                                          │
-                       ┌──────────────────┴───────────────────┐
-                       ▼                                      ▼
-              Kafka Streams topology                 TransactionAnalyticsConsumer ─► ClickHouse (transactions)
-   ┌──────────────────────────────────────────┐
-   │ 1m tumbling window per account:          │      Redis (via interfaces, used inside the topology)
-   │   > 5 txns from >= 2 locations  ─┐       │        • velocity counters  velocity:<1m|1h>:<acct>:<bucket>  (TTL)
-   │ single txn >= 10,000 (HIGH_VALUE)├──► `fraud-alerts` topic   • blocklist  blocklist:<type>:<value>   (optional TTL)
-   │ account/merchant/location on     │       │                 • feature store features:<acct> hash       (TTL 24h)
-   │   blocklist (BLOCKLIST_HIT)     ─┘       ▼
-   └──────────────────────────────────────────┘   AlertConsumer
-                                                    ├─► PostgreSQL `fraud_cases` (JPA + Flyway, idempotent per alert)
-                                                    ├─► AnalyticsStore (ClickHouse `alerts`)
-                                                    └─► AlertBroadcaster ─► GraphQL subscription `alertStream`
- Analyst dashboard (/)  ◄── GraphQL (queries, mutation, subscription over WebSocket)
+```mermaid
+flowchart LR
+  REST["REST POST /api/transactions"] --> T[("Kafka: transactions<br/>key = accountId")]
+  SIM["Simulator (scheduled / REST)"] --> T
+  T --> KS["Kafka Streams topology<br/>1m window velocity, HIGH_VALUE,<br/>BLOCKLIST_HIT"]
+  T --> TAC["TransactionAnalyticsConsumer"]
+  TAC --> CH[("ClickHouse")]
+  KS <--> RD[("Redis<br/>velocity, blocklist, features")]
+  KS --> FA[("Kafka: fraud-alerts")]
+  FA --> AC["AlertConsumer"]
+  AC --> PG[("PostgreSQL fraud_cases")]
+  AC --> CH
+  AC --> BC["AlertBroadcaster"]
+  BC -->|"GraphQL subscription alertStream"| UI["Analyst dashboard"]
+  PG -->|"GraphQL queries / mutation"| UI
 ```
 
 * **Kafka Streams** (`streams/FraudTopology`): event-time windows (`TransactionTimestampExtractor`), a stateful
