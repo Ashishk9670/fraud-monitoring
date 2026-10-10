@@ -50,11 +50,11 @@ class FullStackIT extends ContainersBase {
     @Test
     void fraudBurstEndToEndLandsInPostgresClickHouseAndGraphQl() {
         String account = "it-" + UUID.randomUUID();
-        given().queryParam("accountId", account).queryParam("count", 12)
+        given().header("X-API-Key", "dev-local-key").queryParam("accountId", account).queryParam("count", 12)
                 .post("/api/simulator/fraud-burst").then().statusCode(202);
 
         await().atMost(Duration.ofSeconds(90)).untilAsserted(() -> {
-            List<String> accounts = given().contentType(ContentType.JSON)
+            List<String> accounts = given().header("X-API-Key", "dev-local-key").contentType(ContentType.JSON)
                     .body(Map.of("query", "{ cases(limit: 100) { accountId } }"))
                     .post("/graphql").then().statusCode(200).extract().path("data.cases.accountId");
             assertThat(accounts).contains(account);
