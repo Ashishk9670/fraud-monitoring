@@ -31,6 +31,13 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: manual
       - run: mvn -B -DskipTests -Dspotless.check.skip=true package
+      # Private repos without GitHub Advanced Security cannot upload to the Security tab, so keep SARIF as an artifact.
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          upload: never
+          output: sarif-results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codeql-sarif
+          path: sarif-results
