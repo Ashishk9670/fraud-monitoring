@@ -45,6 +45,8 @@ public final class FraudTopology {
 
     /** Window state is retained this long; the maximum configurable rule window must stay below it. */
     static final Duration STATS_RETENTION = Duration.ofHours(24);
+    public static final String REPLAY_STATS_STORE = "txn-stats-window-replay";
+    static final Duration REPLAY_RETENTION = Duration.ofDays(60);
 
     public static KStream<String, FraudAlert> build(StreamsBuilder builder, FraudRulesProperties rules,
                                                     BlocklistService blocklist, VelocityCounter velocity,
@@ -62,32 +64,53 @@ public final class FraudTopology {
                                                     BlocklistService blocklist, VelocityCounter velocity,
                                                     FeatureStore features, RiskScorer scorer) {
         Function<Transaction, Double> risk = t -> riskOf(scorer, features, t);
+        return pipeline(builder, Topics.TRANSACTIONS, Topics.FRAUD_ALERTS, STATS_STORE, STATS_RETENTION, rules,
+                blocklist, velocity, features, risk);
+    }
+
+    /**
+     * Replay pipeline: same rules, but reading {@link Topics#TRANSACTIONS_REPLAY}, writing
+     * {@link Topics#FRAUD_ALERTS_REPLAY}, with its own state store and no Redis side effects (velocity counters and
+     * feature store are untouched). Records are keyed {@code <replayId>|<accountId>} so runs never share window state.
+     */
+    public static KStream<String, FraudAlert> buildReplay(StreamsBuilder builder, RulesProvider rules,
+                                                          BlocklistService blocklist) {
+        return pipeline(builder, Topics.TRANSACTIONS_REPLAY, Topics.FRAUD_ALERTS_REPLAY, REPLAY_STATS_STORE,
+                REPLAY_RETENTION, rules, blocklist, null, null, t -> null);
+    }
+
+    private static KStream<String, FraudAlert> pipeline(StreamsBuilder builder, String sourceTopic, String sinkTopic,
+                                                        String statsStore, Duration retention, RulesProvider rules,
+                                                        BlocklistService blocklist, VelocityCounter velocity,
+                                                        FeatureStore features, Function<Transaction, Double> risk) {
         Serde<Transaction> txSerde = Json.serde(Transaction.class);
         Serde<FraudAlert> alertSerde = Json.serde(FraudAlert.class);
         Serde<TxnStats> statsSerde = Json.serde(TxnStats.class);
 
         KStream<String, Transaction> txns = builder
-                .stream(Topics.TRANSACTIONS, Consumed.with(Serdes.String(), txSerde)
+                .stream(sourceTopic, Consumed.with(Serdes.String(), txSerde)
                         .withTimestampExtractor(new TransactionTimestampExtractor()))
                 .filter((k, v) -> v != null && v.accountId() != null);
 
         // Redis side effects: velocity counters + feature store (best effort, never kill the stream thread).
-        txns.foreach((k, t) -> {
-            try {
-                velocity.increment(t.accountId());
-                features.update(t);
-            } catch (RuntimeException e) {
-                log.warn("Redis side-effect failed for txn {}: {}", t.id(), e.toString());
-            }
-        });
+        if (velocity != null && features != null) {
+            txns.foreach((k, t) -> {
+                try {
+                    velocity.increment(t.accountId());
+                    features.update(t);
+                } catch (RuntimeException e) {
+                    log.warn("Redis side-effect failed for txn {}: {}", t.id(), e.toString());
+                }
+            });
+        }
 
         // Rule 1: windowed aggregation. The window size is read per record from the rules provider, so a rule change
         // takes effect without restarting the topology (see WindowedVelocityProcessor).
         builder.addStateStore(Stores.windowStoreBuilder(
-                Stores.persistentWindowStore(STATS_STORE, STATS_RETENTION, Duration.ofMinutes(1), false),
+                Stores.persistentWindowStore(statsStore, retention, Duration.ofMinutes(1), false),
                 Serdes.String(), statsSerde));
         KStream<String, FraudAlert> windowed = txns.process(
-                () -> new WindowedVelocityProcessor(rules, STATS_STORE, risk), STATS_STORE);
+                () -> new WindowedVelocityProcessor(rules, statsStore, risk), statsStore);
 
         // Rule 2: high value.
         KStream<String, FraudAlert> highValue = txns
@@ -104,7 +127,7 @@ public final class FraudTopology {
                         risk.apply(t)));
 
         KStream<String, FraudAlert> all = windowed.merge(highValue).merge(blocked);
-        all.to(Topics.FRAUD_ALERTS, Produced.with(Serdes.String(), alertSerde));
+        all.to(sinkTopic, Produced.with(Serdes.String(), alertSerde));
         return all;
     }
 

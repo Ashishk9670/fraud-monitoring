@@ -257,4 +257,45 @@ class FraudTopologyTest {
         assertThat(a.rule()).isEqualTo(FraudAlert.RULE_HIGH_VALUE);
         assertThat(a.riskScore()).isNull();
     }
+
+    @Test
+    void replayPipelineIsIsolatedFromLiveStateAndTopics() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        var rules = com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults());
+        FraudTopology.build(builder, rules, blocklist, velocity, features);
+        FraudTopology.buildReplay(builder, rules, blocklist);
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-replay-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        var replayIn = driver.createInputTopic(Topics.TRANSACTIONS_REPLAY, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        var replayOut = driver.createOutputTopic(Topics.FRAUD_ALERTS_REPLAY, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        // Two runs over the same history must each alert once (no shared window state), at historic timestamps.
+        Instant old = Instant.parse("2020-06-01T00:00:00Z");
+        String[] locs = {"US", "GB", "IN"};
+        for (String run : new String[] {"run1", "run2"}) {
+            for (int i = 0; i < 6; i++) {
+                Transaction t = tx("a1", locs[i % 3], "50.00", old.plusSeconds(i));
+                replayIn.pipeInput(run + "|a1", t, t.timestamp());
+            }
+        }
+        var keyed = replayOut.readKeyValuesToList();
+        assertThat(keyed).extracting(kv -> kv.key).containsExactlyInAnyOrder("run1|a1", "run2|a1");
+        assertThat(keyed).allSatisfy(kv -> {
+            assertThat(kv.value.accountId()).isEqualTo("a1");
+            assertThat(kv.value.rule()).isEqualTo(FraudAlert.RULE_VELOCITY_MULTI_LOCATION);
+        });
+
+        // No live alerts and no Redis side effects.
+        assertThat(output.isEmpty()).isTrue();
+        assertThat(features.get("a1")).isEmpty();
+        assertThat(velocity.current("a1")).containsEntry("1m", 0L);
+    }
 }

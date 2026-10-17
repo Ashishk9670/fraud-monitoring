@@ -51,7 +51,7 @@ final class WindowedVelocityProcessor implements Processor<String, Transaction, 
         store.put(record.key(), next, start);
 
         if (next.justTriggered()) {
-            FraudAlert alert = new FraudAlert(UUID.randomUUID().toString(), record.key(), null,
+            FraudAlert alert = new FraudAlert(UUID.randomUUID().toString(), t.accountId(), null,
                     FraudAlert.RULE_VELOCITY_MULTI_LOCATION, Severity.HIGH,
                     Math.min(1.0, next.count() / (2.0 * r.maxTransactions())),
                     "%d transactions in %s from %d locations %s".formatted(

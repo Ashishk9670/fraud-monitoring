@@ -93,6 +93,21 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
     }
 
     @Override
+    public List<Transaction> transactionsBetween(Instant from, Instant to, int limit) {
+        List<Transaction> out = new ArrayList<>();
+        for (JsonNode r : query("SELECT id, account_id, merchant_id, amount, currency, location, "
+                + "toUnixTimestamp64Milli(ts) AS ts_ms FROM transactions WHERE ts >= fromUnixTimestamp64Milli("
+                + from.toEpochMilli() + ") AND ts < fromUnixTimestamp64Milli(" + to.toEpochMilli() + ") "
+                + "ORDER BY ts ASC LIMIT " + Math.max(1, Math.min(limit, 1_000_000)))) {
+            out.add(new Transaction(r.path("id").asText(), r.path("account_id").asText(),
+                    r.path("merchant_id").asText(), java.math.BigDecimal.valueOf(r.path("amount").asDouble()),
+                    r.path("currency").asText(), r.path("location").asText(),
+                    Instant.ofEpochMilli(r.path("ts_ms").asLong())));
+        }
+        return out;
+    }
+
+    @Override
     public void indexAlert(FraudAlert a) {
         ObjectNode n = Json.MAPPER.createObjectNode();
         n.put("id", a.id()).put("account_id", a.accountId()).put("transaction_id", a.transactionId() == null ? "" : a.transactionId())

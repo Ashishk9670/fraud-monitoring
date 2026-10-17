@@ -30,6 +30,22 @@ public class KafkaConfig {
     }
 
     @Bean
+    NewTopic transactionsReplayTopic() {
+        return TopicBuilder.name(Topics.TRANSACTIONS_REPLAY).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    NewTopic fraudAlertsReplayTopic() {
+        return TopicBuilder.name(Topics.FRAUD_ALERTS_REPLAY).partitions(3).replicas(1).build();
+    }
+
+    @Bean
+    KStream<String, FraudAlert> replayTopology(StreamsBuilder builder, RulesProvider rules,
+                                               BlocklistService blocklist) {
+        return FraudTopology.buildReplay(builder, rules, blocklist);
+    }
+
+    @Bean
     KStream<String, FraudAlert> fraudTopology(StreamsBuilder builder, RulesProvider rules,
                                               BlocklistService blocklist, VelocityCounter velocity,
                                               FeatureStore features, RiskScorer scorer) {

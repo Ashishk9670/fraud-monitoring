@@ -43,6 +43,7 @@ import org.springframework.test.context.ActiveProfiles;
 class ApiTest {
     @LocalServerPort int port;
     @Autowired ExecutionGraphQlService graphQlService;
+    @Autowired com.example.fraud.analytics.AnalyticsStore analytics;
     @Autowired org.springframework.kafka.config.StreamsBuilderFactoryBean streams;
     GraphQlTester graphQl;
     final ObjectMapper om = new ObjectMapper();
@@ -344,5 +345,48 @@ class ApiTest {
                 assertThat(graphQl.document("{ alerts(limit: 200) { accountId rule riskScore } }").execute()
                         .path("alerts[?(@.accountId=='" + account + "')].riskScore").entityList(Double.class).get())
                         .containsExactly(1.0));
+    }
+
+    @Test
+    void replayRequiresApiKeyAndValidatesInput() {
+        given().contentType(ContentType.JSON).body(Map.of("from", "2025-01-01T00:00:00Z", "to", "2025-01-02T00:00:00Z"))
+                .post("/api/replay").then().statusCode(401);
+        api().contentType(ContentType.JSON).body(Map.of("from", "2025-01-02T00:00:00Z", "to", "2025-01-01T00:00:00Z"))
+                .post("/api/replay").then().statusCode(400);
+        api().contentType(ContentType.JSON).body(Map.of("from", "2025-01-01T00:00:00Z"))
+                .post("/api/replay").then().statusCode(400);
+        api().get("/api/replay/nope").then().statusCode(404);
+        api().get("/api/replay/nope/alerts").then().statusCode(404);
+    }
+
+    @Test
+    void replayReprocessesHistoryIntoTheReplayTopicWithoutTouchingLiveCases() {
+        String account = burst("replay-" + UUID.randomUUID(), 12);
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                assertThat(graphQl.document("{ cases(limit: 500) { accountId } }").execute()
+                        .path("cases[*].accountId").entityList(String.class).get()).contains(account));
+        // wait until all 12 transactions are indexed in analytics before replaying
+        java.time.Instant from = java.time.Instant.now().minus(Duration.ofHours(1));
+        java.time.Instant to = java.time.Instant.now().plus(Duration.ofHours(1));
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> assertThat(analytics.transactionsBetween(from, to, 100000)
+                .stream().filter(t -> account.equals(t.accountId())).count()).isEqualTo(12));
+        long casesBefore = graphQl.document("{ cases(limit: 500) { accountId } }").execute()
+                .path("cases[*].accountId").entityList(String.class).get().stream().filter(account::equals).count();
+
+        String id = api().contentType(ContentType.JSON)
+                .body(Map.of("from", from.toString(), "to", to.toString(), "limit", 100000))
+                .post("/api/replay").then().statusCode(202)
+                .body("transactions", org.hamcrest.Matchers.greaterThanOrEqualTo(12)).extract().path("id");
+
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() -> {
+            var alerts = api().get("/api/replay/" + id + "/alerts").then().statusCode(200).extract()
+                    .jsonPath().getList("findAll { it.accountId == '" + account + "' }.rule", String.class);
+            assertThat(alerts).contains("VELOCITY_MULTI_LOCATION");
+        });
+        api().get("/api/replay/" + id).then().statusCode(200).body("run.id", equalTo(id));
+
+        long casesAfter = graphQl.document("{ cases(limit: 500) { accountId } }").execute()
+                .path("cases[*].accountId").entityList(String.class).get().stream().filter(account::equals).count();
+        assertThat(casesAfter).isEqualTo(casesBefore);
     }
 }
