@@ -170,4 +170,43 @@ class FraudTopologyTest {
         in.pipeInput("a1", t, t.timestamp());
         assertThat(out.readValuesToList()).hasSize(1);
     }
+
+    @Test
+    void ruleChangesApplyWithoutRestartingTheTopology() {
+        driver.close();
+        var current = new java.util.concurrent.atomic.AtomicReference<>(FraudRulesProperties.defaults());
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, (com.example.fraud.rules.RulesProvider) current::get, blocklist, velocity,
+                features);
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-reload-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        // 3 txns from 2 locations: below the default threshold of 5 -> no alert, and 15000 is below nothing yet.
+        send(tx("r1", "US", "20000.00", T0));
+        output.readValuesToList(); // default high-value alert
+        send(tx("r1", "GB", "10.00", T0.plusSeconds(1)));
+        send(tx("r1", "US", "10.00", T0.plusSeconds(2)));
+        assertThat(output.isEmpty()).isTrue();
+
+        // Tighten: >2 txns, high value at 100, 30 second windows.
+        current.set(new FraudRulesProperties(Duration.ofSeconds(30), 2, 2, new BigDecimal("100")));
+        send(tx("r2", "US", "10.00", T0.plusSeconds(120)));
+        send(tx("r2", "GB", "10.00", T0.plusSeconds(121)));
+        send(tx("r2", "US", "10.00", T0.plusSeconds(122)));
+        List<FraudAlert> alerts = output.readValuesToList();
+        assertThat(alerts).hasSize(1);
+        assertThat(alerts.get(0).rule()).isEqualTo(FraudAlert.RULE_VELOCITY_MULTI_LOCATION);
+        assertThat(Duration.between(alerts.get(0).windowStart(), alerts.get(0).windowEnd()))
+                .isEqualTo(Duration.ofSeconds(30));
+
+        send(tx("r3", "US", "150.00", T0.plusSeconds(200)));
+        assertThat(output.readValuesToList()).extracting(FraudAlert::rule).containsExactly(FraudAlert.RULE_HIGH_VALUE);
+    }
 }

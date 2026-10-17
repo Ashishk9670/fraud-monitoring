@@ -35,7 +35,24 @@ type FraudCase {
 type RuleCount { rule: String! count: Int! }
 type AccountRisk { accountId: String! alertCount: Int! maxScore: Float! }
 
+type RuleSettings {
+  windowSeconds: Int!
+  maxTransactions: Int!
+  minDistinctLocations: Int!
+  highValueAmount: Float!
+  updatedAt: String
+  updatedBy: String
+}
+
+input RuleUpdateInput {
+  windowSeconds: Int
+  maxTransactions: Int
+  minDistinctLocations: Int
+  highValueAmount: Float
+}
+
 type Query {
+  rules: RuleSettings!
   cases(status: CaseStatus, limit: Int = 50): [FraudCase!]!
   case(id: ID!): FraudCase
   alerts(limit: Int = 50): [Alert!]!
@@ -44,6 +61,7 @@ type Query {
 }
 
 type Mutation {
+  updateRules(input: RuleUpdateInput!): RuleSettings!
   updateCase(id: ID!, status: CaseStatus, assignee: String, notes: String): FraudCase!
 }
 

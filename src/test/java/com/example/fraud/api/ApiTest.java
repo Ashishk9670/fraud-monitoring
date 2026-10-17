@@ -273,4 +273,59 @@ class ApiTest {
     void dashboardIsServed() {
         given().get("/").then().statusCode(200).body(org.hamcrest.Matchers.containsString("Fraud Analyst Dashboard"));
     }
+
+    @Test
+    void rulesRequireApiKey() {
+        given().get("/api/rules").then().statusCode(401);
+        given().contentType(ContentType.JSON).body(Map.of("maxTransactions", 3)).put("/api/rules").then().statusCode(401);
+        given().contentType(ContentType.JSON).body(Map.of("query", "{ rules { maxTransactions } }"))
+                .post("/graphql").then().statusCode(401);
+    }
+
+    @Test
+    void rulesCanBeReadAndUpdatedOverRestAndAreValidated() {
+        api().get("/api/rules").then().statusCode(200).body("windowSeconds", equalTo(60))
+                .body("maxTransactions", equalTo(5));
+
+        api().contentType(ContentType.JSON).body(Map.of("maxTransactions", 0))
+                .put("/api/rules").then().statusCode(400);
+        api().get("/api/rules").then().body("maxTransactions", equalTo(5));
+
+        api().contentType(ContentType.JSON).body(Map.of("highValueAmount", 12345.5))
+                .put("/api/rules").then().statusCode(200)
+                .body("highValueAmount", org.hamcrest.Matchers.comparesEqualTo(12345.5f))
+                .body("updatedBy", equalTo("api-client"));
+        api().contentType(ContentType.JSON).body(Map.of("highValueAmount", 10000))
+                .put("/api/rules").then().statusCode(200);
+    }
+
+    @Test
+    void rulesCanBeUpdatedOverGraphQl() {
+        graphQl.document("mutation { updateRules(input: {minDistinctLocations: 3}) { minDistinctLocations updatedBy } }")
+                .execute().path("updateRules.minDistinctLocations").entity(Integer.class).isEqualTo(3);
+        graphQl.document("{ rules { minDistinctLocations windowSeconds } }").execute()
+                .path("rules.minDistinctLocations").entity(Integer.class).isEqualTo(3);
+        graphQl.document("mutation { updateRules(input: {windowSeconds: 0}) { windowSeconds } }").execute()
+                .errors().satisfy(e -> assertThat(e).isNotEmpty());
+        graphQl.document("mutation { updateRules(input: {minDistinctLocations: 2}) { minDistinctLocations } }")
+                .execute().path("updateRules.minDistinctLocations").entity(Integer.class).isEqualTo(2);
+    }
+
+    @Test
+    void updatedRulesTakeEffectInTheRunningTopologyWithoutRestart() {
+        String account = "hot-" + UUID.randomUUID();
+        api().contentType(ContentType.JSON).body(Map.of("highValueAmount", 100))
+                .put("/api/rules").then().statusCode(200);
+        try {
+            api().contentType(ContentType.JSON).body(Map.of(
+                            "accountId", account, "merchantId", "m", "amount", 150, "currency", "USD", "location", "US"))
+                    .post("/api/transactions").then().statusCode(202);
+            await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                    assertThat(graphQl.document("{ cases(limit: 200) { accountId rule } }").execute()
+                            .path("cases[?(@.accountId=='" + account + "')].rule").entityList(String.class).get())
+                            .contains("HIGH_VALUE"));
+        } finally {
+            api().contentType(ContentType.JSON).body(Map.of("highValueAmount", 10000)).put("/api/rules");
+        }
+    }
 }

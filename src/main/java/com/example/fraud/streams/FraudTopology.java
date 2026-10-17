@@ -10,21 +10,18 @@ import com.example.fraud.redis.BlockType;
 import com.example.fraud.redis.BlocklistService;
 import com.example.fraud.redis.FeatureStore;
 import com.example.fraud.redis.VelocityCounter;
+import com.example.fraud.rules.RulesProvider;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.common.utils.Bytes;
-import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.kstream.Consumed;
-import org.apache.kafka.streams.kstream.Grouped;
 import org.apache.kafka.streams.kstream.KStream;
-import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
-import org.apache.kafka.streams.kstream.TimeWindows;
-import org.apache.kafka.streams.state.WindowStore;
+import org.apache.kafka.streams.state.Stores;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,7 +41,16 @@ public final class FraudTopology {
 
     private FraudTopology() {}
 
+    /** Window state is retained this long; the maximum configurable rule window must stay below it. */
+    static final Duration STATS_RETENTION = Duration.ofHours(24);
+
     public static KStream<String, FraudAlert> build(StreamsBuilder builder, FraudRulesProperties rules,
+                                                    BlocklistService blocklist, VelocityCounter velocity,
+                                                    FeatureStore features) {
+        return build(builder, RulesProvider.fixed(rules), blocklist, velocity, features);
+    }
+
+    public static KStream<String, FraudAlert> build(StreamsBuilder builder, RulesProvider rules,
                                                     BlocklistService blocklist, VelocityCounter velocity,
                                                     FeatureStore features) {
         Serde<Transaction> txSerde = Json.serde(Transaction.class);
@@ -66,31 +72,20 @@ public final class FraudTopology {
             }
         });
 
-        // Rule 1: windowed aggregation.
-        KStream<String, FraudAlert> windowed = txns
-                .groupByKey(Grouped.with(Serdes.String(), txSerde))
-                .windowedBy(TimeWindows.ofSizeWithNoGrace(rules.window()))
-                .aggregate(TxnStats::empty,
-                        (acct, t, s) -> s.add(t, rules.maxTransactions(), rules.minDistinctLocations()),
-                        Materialized.<String, TxnStats, WindowStore<Bytes, byte[]>>as(STATS_STORE)
-                                .withKeySerde(Serdes.String()).withValueSerde(statsSerde))
-                .toStream()
-                .filter((w, s) -> s != null && s.justTriggered())
-                .map((w, s) -> KeyValue.pair(w.key(), new FraudAlert(
-                        UUID.randomUUID().toString(), w.key(), null,
-                        FraudAlert.RULE_VELOCITY_MULTI_LOCATION, Severity.HIGH,
-                        Math.min(1.0, s.count() / (2.0 * rules.maxTransactions())),
-                        "%d transactions in %s from %d locations %s".formatted(
-                                s.count(), rules.window(), s.locations().size(), s.locations()),
-                        s.count(), List.copyOf(s.locations()),
-                        Instant.ofEpochMilli(w.window().start()), Instant.ofEpochMilli(w.window().end()),
-                        Instant.now())));
+        // Rule 1: windowed aggregation. The window size is read per record from the rules provider, so a rule change
+        // takes effect without restarting the topology (see WindowedVelocityProcessor).
+        builder.addStateStore(Stores.windowStoreBuilder(
+                Stores.persistentWindowStore(STATS_STORE, STATS_RETENTION, Duration.ofMinutes(1), false),
+                Serdes.String(), statsSerde));
+        KStream<String, FraudAlert> windowed = txns.process(
+                () -> new WindowedVelocityProcessor(rules, STATS_STORE), STATS_STORE);
 
         // Rule 2: high value.
         KStream<String, FraudAlert> highValue = txns
-                .filter((k, t) -> t.amount().compareTo(rules.highValueAmount()) >= 0)
+                .filter((k, t) -> t.amount().compareTo(rules.current().highValueAmount()) >= 0)
                 .mapValues(t -> single(t, FraudAlert.RULE_HIGH_VALUE, Severity.MEDIUM, 0.6,
-                        "Transaction amount %s %s >= %s".formatted(t.amount(), t.currency(), rules.highValueAmount())));
+                        "Transaction amount %s %s >= %s".formatted(t.amount(), t.currency(),
+                                rules.current().highValueAmount())));
 
         // Rule 3: blocklist.
         KStream<String, FraudAlert> blocked = txns
