@@ -8,6 +8,7 @@ type Alert {
   rule: String!
   severity: Severity!
   score: Float!
+  riskScore: Float
   reason: String!
   transactionCount: Int!
   locations: [String!]!

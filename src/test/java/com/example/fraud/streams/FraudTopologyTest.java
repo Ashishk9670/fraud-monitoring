@@ -209,4 +209,52 @@ class FraudTopologyTest {
         send(tx("r3", "US", "150.00", T0.plusSeconds(200)));
         assertThat(output.readValuesToList()).extracting(FraudAlert::rule).containsExactly(FraudAlert.RULE_HIGH_VALUE);
     }
+
+    @Test
+    void alertsCarryRiskScoreFromThePluggableScorer() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults()),
+                blocklist, velocity, features, new com.example.fraud.scoring.ZScoreRiskScorer());
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-score-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        for (int i = 0; i < 10; i++) send(tx("s1", "US", i % 2 == 0 ? "100.00" : "110.00", T0.plusSeconds(i * 120L)));
+        assertThat(output.isEmpty()).isTrue();
+        send(tx("s1", "US", "50000.00", T0.plusSeconds(2000)));
+        FraudAlert a = output.readValuesToList().get(0);
+        assertThat(a.rule()).isEqualTo(FraudAlert.RULE_HIGH_VALUE);
+        assertThat(a.riskScore()).isNotNull().isEqualTo(1.0);
+
+        // A new account has no history: alert is raised but without a risk score.
+        send(tx("fresh", "US", "50000.00", T0.plusSeconds(2001)));
+        assertThat(output.readValuesToList().get(0).riskScore()).isNull();
+    }
+
+    @Test
+    void failingScorerDoesNotBreakTheStream() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults()),
+                blocklist, velocity, features, (t, f) -> { throw new IllegalStateException("boom"); });
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-failscore-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+        send(tx("a1", "US", "50000.00", T0));
+        FraudAlert a = output.readValuesToList().get(0);
+        assertThat(a.rule()).isEqualTo(FraudAlert.RULE_HIGH_VALUE);
+        assertThat(a.riskScore()).isNull();
+    }
 }

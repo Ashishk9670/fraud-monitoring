@@ -41,9 +41,12 @@ public final class InMemoryRedisFakes {
     public static class Features implements FeatureStore {
         private final Map<String, Map<String, String>> data = new ConcurrentHashMap<>();
 
-        @Override public void update(Transaction t) {
+        @Override public synchronized void update(Transaction t) {
             Map<String, String> m = data.computeIfAbsent(t.accountId(), k -> new ConcurrentHashMap<>());
             m.merge("txn_count", "1", (a, b) -> String.valueOf(Long.parseLong(a) + 1));
+            double x = t.amount().doubleValue();
+            m.merge("total_amount", String.valueOf(x), (a, b) -> String.valueOf(Double.parseDouble(a) + x));
+            m.merge("total_amount_sq", String.valueOf(x * x), (a, b) -> String.valueOf(Double.parseDouble(a) + x * x));
             m.put("last_location", t.location());
         }
         @Override public Map<String, String> get(String accountId) { return new HashMap<>(data.getOrDefault(accountId, Map.of())); }

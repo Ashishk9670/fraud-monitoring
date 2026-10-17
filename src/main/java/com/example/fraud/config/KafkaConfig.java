@@ -4,6 +4,7 @@ import com.example.fraud.redis.BlocklistService;
 import com.example.fraud.redis.FeatureStore;
 import com.example.fraud.redis.VelocityCounter;
 import com.example.fraud.rules.RulesProvider;
+import com.example.fraud.scoring.RiskScorer;
 import com.example.fraud.streams.FraudTopology;
 import com.example.fraud.model.FraudAlert;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -31,7 +32,7 @@ public class KafkaConfig {
     @Bean
     KStream<String, FraudAlert> fraudTopology(StreamsBuilder builder, RulesProvider rules,
                                               BlocklistService blocklist, VelocityCounter velocity,
-                                              FeatureStore features) {
-        return FraudTopology.build(builder, rules, blocklist, velocity, features);
+                                              FeatureStore features, RiskScorer scorer) {
+        return FraudTopology.build(builder, rules, blocklist, velocity, features, scorer);
     }
 }

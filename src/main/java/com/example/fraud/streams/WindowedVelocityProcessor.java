@@ -8,6 +8,7 @@ import com.example.fraud.rules.RulesProvider;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 import org.apache.kafka.streams.processor.api.Processor;
 import org.apache.kafka.streams.processor.api.ProcessorContext;
 import org.apache.kafka.streams.processor.api.Record;
@@ -21,12 +22,14 @@ import org.apache.kafka.streams.state.WindowStore;
 final class WindowedVelocityProcessor implements Processor<String, Transaction, String, FraudAlert> {
     private final RulesProvider rules;
     private final String storeName;
+    private final Function<Transaction, Double> risk;
     private ProcessorContext<String, FraudAlert> context;
     private WindowStore<String, TxnStats> store;
 
-    WindowedVelocityProcessor(RulesProvider rules, String storeName) {
+    WindowedVelocityProcessor(RulesProvider rules, String storeName, Function<Transaction, Double> risk) {
         this.rules = rules;
         this.storeName = storeName;
+        this.risk = risk;
     }
 
     @Override
@@ -54,7 +57,7 @@ final class WindowedVelocityProcessor implements Processor<String, Transaction, 
                     "%d transactions in %s from %d locations %s".formatted(
                             next.count(), r.window(), next.locations().size(), next.locations()),
                     next.count(), List.copyOf(next.locations()),
-                    Instant.ofEpochMilli(start), Instant.ofEpochMilli(start + sizeMs), Instant.now());
+                    Instant.ofEpochMilli(start), Instant.ofEpochMilli(start + sizeMs), Instant.now(), risk.apply(t));
             context.forward(record.withValue(alert));
         }
     }

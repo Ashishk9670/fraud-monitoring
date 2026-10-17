@@ -54,6 +54,7 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
         exec("CREATE TABLE IF NOT EXISTS alerts (id String, account_id String, transaction_id String, rule String, "
                 + "severity String, score Float64, reason String, txn_count Int32, locations Array(String), "
                 + "created_at DateTime64(3, 'UTC')) ENGINE = MergeTree ORDER BY created_at");
+        exec("ALTER TABLE alerts ADD COLUMN IF NOT EXISTS risk_score Nullable(Float64)");
     }
 
     private void exec(String sql) {
@@ -98,6 +99,7 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
                 .put("rule", a.rule()).put("severity", a.severity().name()).put("score", a.score())
                 .put("reason", a.reason()).put("txn_count", a.transactionCount())
                 .put("created_at", TS.format(a.createdAt()));
+        if (a.riskScore() == null) n.putNull("risk_score"); else n.put("risk_score", a.riskScore());
         var arr = n.putArray("locations");
         a.locations().forEach(arr::add);
         insert("alerts", n);
@@ -107,7 +109,7 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
     public List<FraudAlert> recentAlerts(int limit) {
         List<FraudAlert> out = new ArrayList<>();
         for (JsonNode r : query("SELECT id, account_id, transaction_id, rule, severity, score, reason, txn_count, "
-                + "locations, toUnixTimestamp64Milli(created_at) AS created_ms FROM alerts "
+                + "locations, risk_score, toUnixTimestamp64Milli(created_at) AS created_ms FROM alerts "
                 + "ORDER BY created_at DESC LIMIT " + Math.max(1, Math.min(limit, 1000)))) {
             List<String> locs = new ArrayList<>();
             r.path("locations").forEach(l -> locs.add(l.asText()));
@@ -116,7 +118,8 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
             out.add(new FraudAlert(r.path("id").asText(), r.path("account_id").asText(), txn.isEmpty() ? null : txn,
                     r.path("rule").asText(), Severity.valueOf(r.path("severity").asText()),
                     r.path("score").asDouble(), r.path("reason").asText(), r.path("txn_count").asInt(),
-                    locs, created, created, created));
+                    locs, created, created, created,
+                    r.path("risk_score").isNumber() ? r.path("risk_score").asDouble() : null));
         }
         return out;
     }

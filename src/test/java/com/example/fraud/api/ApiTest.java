@@ -328,4 +328,21 @@ class ApiTest {
             api().contentType(ContentType.JSON).body(Map.of("highValueAmount", 10000)).put("/api/rules");
         }
     }
+
+    @Test
+    void alertsCarryAnAnomalyRiskScoreAgainstAccountHistory() {
+        String account = "score-" + UUID.randomUUID();
+        for (int i = 0; i < 8; i++) {
+            api().contentType(ContentType.JSON).body(Map.of("accountId", account, "merchantId", "m",
+                    "amount", 100 + i, "currency", "USD", "location", "US")).post("/api/transactions")
+                    .then().statusCode(202);
+        }
+        api().contentType(ContentType.JSON).body(Map.of("accountId", account, "merchantId", "m",
+                "amount", 500000, "currency", "USD", "location", "US")).post("/api/transactions")
+                .then().statusCode(202);
+        await().atMost(Duration.ofSeconds(60)).untilAsserted(() ->
+                assertThat(graphQl.document("{ alerts(limit: 200) { accountId rule riskScore } }").execute()
+                        .path("alerts[?(@.accountId=='" + account + "')].riskScore").entityList(Double.class).get())
+                        .containsExactly(1.0));
+    }
 }

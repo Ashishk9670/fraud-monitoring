@@ -11,10 +11,12 @@ import com.example.fraud.redis.BlocklistService;
 import com.example.fraud.redis.FeatureStore;
 import com.example.fraud.redis.VelocityCounter;
 import com.example.fraud.rules.RulesProvider;
+import com.example.fraud.scoring.RiskScorer;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Function;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.StreamsBuilder;
@@ -53,6 +55,13 @@ public final class FraudTopology {
     public static KStream<String, FraudAlert> build(StreamsBuilder builder, RulesProvider rules,
                                                     BlocklistService blocklist, VelocityCounter velocity,
                                                     FeatureStore features) {
+        return build(builder, rules, blocklist, velocity, features, RiskScorer.none());
+    }
+
+    public static KStream<String, FraudAlert> build(StreamsBuilder builder, RulesProvider rules,
+                                                    BlocklistService blocklist, VelocityCounter velocity,
+                                                    FeatureStore features, RiskScorer scorer) {
+        Function<Transaction, Double> risk = t -> riskOf(scorer, features, t);
         Serde<Transaction> txSerde = Json.serde(Transaction.class);
         Serde<FraudAlert> alertSerde = Json.serde(FraudAlert.class);
         Serde<TxnStats> statsSerde = Json.serde(TxnStats.class);
@@ -78,20 +87,21 @@ public final class FraudTopology {
                 Stores.persistentWindowStore(STATS_STORE, STATS_RETENTION, Duration.ofMinutes(1), false),
                 Serdes.String(), statsSerde));
         KStream<String, FraudAlert> windowed = txns.process(
-                () -> new WindowedVelocityProcessor(rules, STATS_STORE), STATS_STORE);
+                () -> new WindowedVelocityProcessor(rules, STATS_STORE, risk), STATS_STORE);
 
         // Rule 2: high value.
         KStream<String, FraudAlert> highValue = txns
                 .filter((k, t) -> t.amount().compareTo(rules.current().highValueAmount()) >= 0)
                 .mapValues(t -> single(t, FraudAlert.RULE_HIGH_VALUE, Severity.MEDIUM, 0.6,
                         "Transaction amount %s %s >= %s".formatted(t.amount(), t.currency(),
-                                rules.current().highValueAmount())));
+                                rules.current().highValueAmount()), risk.apply(t)));
 
         // Rule 3: blocklist.
         KStream<String, FraudAlert> blocked = txns
                 .filter((k, t) -> isBlocked(blocklist, t))
                 .mapValues(t -> single(t, FraudAlert.RULE_BLOCKLIST, Severity.CRITICAL, 1.0,
-                        "Account %s or merchant %s is on the blocklist".formatted(t.accountId(), t.merchantId())));
+                        "Account %s or merchant %s is on the blocklist".formatted(t.accountId(), t.merchantId()),
+                        risk.apply(t)));
 
         KStream<String, FraudAlert> all = windowed.merge(highValue).merge(blocked);
         all.to(Topics.FRAUD_ALERTS, Produced.with(Serdes.String(), alertSerde));
@@ -109,8 +119,20 @@ public final class FraudTopology {
         }
     }
 
-    private static FraudAlert single(Transaction t, String rule, Severity sev, double score, String reason) {
+    /** Best-effort risk score; a failing scorer or feature store never breaks the stream. */
+    private static Double riskOf(RiskScorer scorer, FeatureStore features, Transaction t) {
+        try {
+            var s = scorer.score(t, features.get(t.accountId()));
+            return s.isPresent() ? s.getAsDouble() : null;
+        } catch (RuntimeException e) {
+            log.warn("Risk scoring failed for txn {}: {}", t.id(), e.toString());
+            return null;
+        }
+    }
+
+    private static FraudAlert single(Transaction t, String rule, Severity sev, double score, String reason,
+                                     Double riskScore) {
         return new FraudAlert(UUID.randomUUID().toString(), t.accountId(), t.id(), rule, sev, score, reason,
-                1, List.of(t.location()), t.timestamp(), t.timestamp(), Instant.now());
+                1, List.of(t.location()), t.timestamp(), t.timestamp(), Instant.now(), riskScore);
     }
 }
