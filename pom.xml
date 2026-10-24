@@ -24,7 +24,7 @@
     <archunit.version>1.4.1</archunit.version>
     <json-schema-validator.version>1.5.6</json-schema-validator.version>
     <jacoco.version>0.8.15</jacoco.version>
-    <spotless.version>2.43.0</spotless.version>
+    <spotless.version>3.10.4</spotless.version>
     <jacoco.min.line.coverage>0.70</jacoco.min.line.coverage>
     <!-- security overrides of Spring Boot managed versions (CVE fixes ahead of the next Boot release) -->
     <jackson-bom.version>2.21.7</jackson-bom.version>
