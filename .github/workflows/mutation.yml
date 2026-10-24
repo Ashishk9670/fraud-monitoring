@@ -1,0 +1,29 @@
+name: Mutation testing
+
+# Optional, slow job: not part of the PR gate.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  pitest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      # PIT on streams/rules/scoring; fails below pitest.mutation.threshold (pom.xml)
+      - run: mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pit-report
+          path: target/pit-reports
