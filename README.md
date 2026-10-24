@@ -176,6 +176,13 @@ cd e2e && npm ci && npx playwright install chromium && npx playwright test   # B
 Without Docker you can run the same suite against a stand-in app (embedded Kafka, H2, fake Redis):
 `make e2e-local-app` in one terminal, `make e2e` in another.
 
+### Supply chain
+
+CI uploads a CycloneDX SBOM (`sbom-cyclonedx` artifact). The release workflow (tag `v*.*.*`) signs the image with
+cosign keyless (GitHub OIDC) and attaches the SBOM as an attestation; verify with
+`cosign verify ghcr.io/ashishk9670/fraud-monitoring:<tag> --certificate-identity-regexp 'github.com/Ashishk9670/fraud-monitoring' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+An OpenSSF Scorecard workflow runs weekly.
+
 ### CI
 
 `.github/workflows/ci.yml`: build + unit/API tests with Jacoco, Testcontainers integration tests, and Playwright e2e

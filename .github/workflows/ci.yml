@@ -19,6 +19,12 @@ jobs:
         run: mvn -B spotless:check
       # unit tests + Docker-free API tests (embedded Kafka, H2, fake Redis); fails below the Jacoco line-coverage gate
       - run: mvn -B -Pcoverage-gate verify -DskipITs=true -Dfailsafe.skip=true
+      - name: SBOM (CycloneDX)
+        run: mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom -DoutputFormat=json -DoutputName=sbom -DincludeTestScope=false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: target/sbom.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
