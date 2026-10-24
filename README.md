@@ -10,6 +10,12 @@
 Spring Boot 3.5 / Java 21 service that ingests payment transactions, detects fraud in real time with
 Kafka Streams, and exposes cases, alerts and a live alert stream to analysts via GraphQL and a small web dashboard.
 
+![Dashboard with live alerts and cases](docs/img/dashboard-alerts.png)
+
+`make demo` brings up the full stack (app, Kafka, Redis, Postgres, ClickHouse, Prometheus, Grafana, Loki, Tempo) and seeds
+fraud bursts so the dashboard has data. Screenshots in `docs/img` are generated with Playwright against the Docker-free
+stand-in app (`make e2e-local-app`, then `make screenshots`, using `-Dserver.port=8099`).
+
 ## Architecture
 
 ```mermaid
