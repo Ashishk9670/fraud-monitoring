@@ -83,7 +83,7 @@ services:
   # ---- observability: `docker compose --profile observability up -d` (add --profile app for the containerised app) ----
   prometheus:
     profiles: ["observability"]
-    image: prom/prometheus:v2.55.1
+    image: prom/prometheus:v3.15.0
     ports: ["9090:9090"]
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
