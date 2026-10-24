@@ -107,13 +107,16 @@ jobs:
           wait_for http://localhost:3200/ready
           wait_for http://localhost:3000/api/health
           curl -fsS http://localhost:9090/api/v1/rules | grep -q FraudAlertLatencyHigh
-          for ds in prometheus loki tempo; do
+          for ds in prometheus loki; do
             for i in $(seq 1 20); do
               curl -sS -u admin:admin "http://localhost:3000/api/datasources/uid/$ds/health" | tee /dev/stderr | grep -q '"status":"OK"' && break
               [ "$i" = 20 ] && { echo "datasource $ds unhealthy"; exit 1; }
               sleep 3
             done
           done
+          # Tempo's Grafana plugin has no backend health check: provisioned? reachable through the Grafana proxy?
+          curl -fsS -u admin:admin http://localhost:3000/api/datasources/uid/tempo | grep -q tracesToLogsV2
+          curl -fsS -u admin:admin http://localhost:3000/api/datasources/proxy/uid/tempo/api/echo | grep -q echo
       - name: Logs
         if: failure()
         run: docker compose --profile observability logs --no-color
