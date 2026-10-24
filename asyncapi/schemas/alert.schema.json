@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ashishk9670/fraud-monitoring/asyncapi/schemas/alert.schema.json",
+  "title": "FraudAlert",
+  "description": "A fraud alert published to the 'fraud-alerts' topic.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "accountId", "rule", "severity", "score", "reason", "transactionCount", "locations", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "accountId": { "type": "string", "minLength": 1 },
+    "transactionId": { "type": ["string", "null"] },
+    "rule": { "type": "string", "minLength": 1 },
+    "severity": { "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "score": { "type": "number" },
+    "reason": { "type": "string" },
+    "transactionCount": { "type": "integer", "minimum": 0 },
+    "locations": { "type": "array", "items": { "type": "string" } },
+    "windowStart": { "type": ["string", "null"], "format": "date-time" },
+    "windowEnd": { "type": ["string", "null"], "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "riskScore": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+  }
+}

@@ -1,0 +1,39 @@
+asyncapi: 3.0.0
+info:
+  title: Fraud Monitoring events
+  version: 0.1.0
+  description: Kafka event contracts. Payload schemas live in schemas/ and are verified against real serialized events by EventContractTest.
+servers:
+  kafka:
+    host: localhost:9092
+    protocol: kafka
+channels:
+  transactions:
+    address: transactions
+    messages:
+      transaction:
+        $ref: '#/components/messages/Transaction'
+  fraud-alerts:
+    address: fraud-alerts
+    messages:
+      alert:
+        $ref: '#/components/messages/FraudAlert'
+operations:
+  publishTransaction:
+    action: send
+    channel:
+      $ref: '#/channels/transactions'
+  consumeAlerts:
+    action: receive
+    channel:
+      $ref: '#/channels/fraud-alerts'
+components:
+  messages:
+    Transaction:
+      contentType: application/json
+      payload:
+        $ref: 'schemas/transaction.schema.json'
+    FraudAlert:
+      contentType: application/json
+      payload:
+        $ref: 'schemas/alert.schema.json'
