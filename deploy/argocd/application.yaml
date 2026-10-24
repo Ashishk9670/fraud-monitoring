@@ -1,0 +1,27 @@
+# EXAMPLE Argo CD Application deploying the Helm chart from this repository.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fraud-monitoring
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Ashishk9670/fraud-monitoring.git
+    targetRevision: main
+    path: deploy/helm/fraud-monitoring
+    helm:
+      releaseName: fraud-monitoring
+      valueFiles: [values.yaml]
+      parameters:
+        - name: image.tag
+          value: latest              # pin to a released version
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: fraud-monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

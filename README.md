@@ -130,6 +130,15 @@ curl -H 'X-API-Key: dev-local-key' localhost:8080/api/replay/1a2b3c4d/alerts   #
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/).
 
+## Deploy
+
+- `deploy/k8s/`: plain manifests (kustomize).
+- `deploy/helm/fraud-monitoring/`: Helm chart (`helm install fraud deploy/helm/fraud-monitoring`); config in `values.yaml`,
+  secrets come from an existing Secret (`existingSecret`).
+- `deploy/secrets-examples/`: External Secrets and Sealed Secrets examples (placeholders only, no real secrets).
+- `deploy/argocd/application.yaml`: example Argo CD Application. CI (`helm.yml`) runs `helm lint` and validates the
+  rendered chart and the examples with kubeconform.
+
 ## Observability
 
 `make observability-up` starts Prometheus (9090, alert rules), Grafana (3000), Loki + Alloy (container logs) and Tempo
