@@ -21,18 +21,18 @@ jobs:
       - run: mvn -B -Pcoverage-gate verify -DskipITs=true -Dfailsafe.skip=true
       - name: SBOM (CycloneDX)
         run: mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom -DoutputFormat=json -DoutputName=sbom -DincludeTestScope=false
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: target/sbom.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: unit-test-and-coverage
           path: |
             target/surefire-reports
             target/site/jacoco
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: app-jar
           path: target/fraud-monitoring-*.jar
@@ -53,7 +53,7 @@ jobs:
         run: |
           python3 .github/scripts/assert-tests-ran.py target/failsafe-reports FullStackIT 2
           python3 .github/scripts/assert-tests-ran.py target/failsafe-reports ChaosIT 3
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: integration-reports
@@ -81,7 +81,7 @@ jobs:
       - name: Run Playwright
         working-directory: e2e
         run: npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
