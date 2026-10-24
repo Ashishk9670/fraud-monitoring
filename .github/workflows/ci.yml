@@ -109,7 +109,7 @@ jobs:
           curl -fsS http://localhost:9090/api/v1/rules | grep -q FraudAlertLatencyHigh
           for ds in prometheus loki tempo; do
             for i in $(seq 1 20); do
-              curl -fsS -u admin:admin "http://localhost:3000/api/datasources/uid/$ds/health" | tee /dev/stderr | grep -q '"status":"OK"' && break
+              curl -sS -u admin:admin "http://localhost:3000/api/datasources/uid/$ds/health" | tee /dev/stderr | grep -q '"status":"OK"' && break
               [ "$i" = 20 ] && { echo "datasource $ds unhealthy"; exit 1; }
               sleep 3
             done
