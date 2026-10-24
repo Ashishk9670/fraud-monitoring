@@ -49,6 +49,11 @@ spring:
     problemdetails:
       enabled: true
 
+logging:
+  pattern:
+    # [app,traceId,spanId] so Loki log lines link to Tempo traces (empty ids when tracing is off)
+    correlation: "[${spring.application.name},%X{traceId:-},%X{spanId:-}] "
+
 server:
   port: 8080
 

@@ -1,0 +1,39 @@
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{status="500"}'
+        values: '0+10x15'
+      - series: 'http_server_requests_seconds_count{status="200"}'
+        values: '0+90x15'
+      - series: 'kafka_consumer_fetch_manager_records_lag_max{topic="transactions"}'
+        values: '5000x15'
+      - series: 'up{job="fraud-monitoring",instance="app:8080"}'
+        values: '1 1 1 0x12'
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: FraudApiErrorRateHigh
+        exp_alerts:
+          - exp_labels: { severity: page, slo: error-rate }
+            exp_annotations:
+              summary: "HTTP 5xx ratio is 10% (SLO 5%)"
+              runbook_url: https://github.com/Ashishk9670/fraud-monitoring/blob/main/docs/runbooks/FraudApiErrorRateHigh.md
+      - eval_time: 12m
+        alertname: FraudConsumerLagHigh
+        exp_alerts:
+          - exp_labels: { severity: ticket, slo: consumer-lag, topic: transactions }
+            exp_annotations:
+              summary: "Consumer lag on transactions is 5000 records (SLO 1000)"
+              runbook_url: https://github.com/Ashishk9670/fraud-monitoring/blob/main/docs/runbooks/FraudConsumerLagHigh.md
+      - eval_time: 12m
+        alertname: FraudAppDown
+        exp_alerts:
+          - exp_labels: { severity: page, job: fraud-monitoring, instance: "app:8080" }
+            exp_annotations:
+              summary: "Scrape target app:8080 is down"
+              runbook_url: https://github.com/Ashishk9670/fraud-monitoring/blob/main/docs/runbooks/FraudAppDown.md
+      - eval_time: 3m
+        alertname: FraudAppDown
+        exp_alerts: []

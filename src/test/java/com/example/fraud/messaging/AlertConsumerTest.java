@@ -36,6 +36,7 @@ class AlertConsumerTest {
         new AlertConsumer(cases, analytics, broadcaster, metrics).onAlert(Json.MAPPER.writeValueAsString(alert()));
 
         assertThat(metrics.counter("fraud.alerts", "rule", "R", "severity", "HIGH").count()).isEqualTo(1.0);
+        assertThat(metrics.get("fraud.alert.latency").timer().count()).isEqualTo(1L);
         verify(cases).openCase(any());
         verify(analytics).indexAlert(any());
         assertThat(received).hasSize(1);

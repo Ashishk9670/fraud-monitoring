@@ -73,7 +73,7 @@ services:
       ANALYTICS_CLICKHOUSE_URL: http://clickhouse:8123
       FRAUD_API_KEYS: ${FRAUD_API_KEYS:-dev-local-key}
       TRACING_ENABLED: ${TRACING_ENABLED:-false}
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
     depends_on:
       kafka: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -87,6 +87,7 @@ services:
     ports: ["9090:9090"]
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
     extra_hosts: ["host.docker.internal:host-gateway"]
 
   grafana:
@@ -100,11 +101,31 @@ services:
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    depends_on: [prometheus]
+    depends_on: [prometheus, loki, tempo]
 
-  jaeger:
+  loki:
     profiles: ["observability"]
-    image: jaegertracing/all-in-one:1.62.0
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    ports: ["16686:16686", "4318:4318"]
+    image: grafana/loki:3.2.0
+    command: ["-config.file=/etc/loki/loki.yml"]
+    ports: ["3100:3100"]
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+
+  tempo:
+    profiles: ["observability"]
+    image: grafana/tempo:2.6.1
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    ports: ["3200:3200", "4318:4318"]
+    volumes:
+      - ./observability/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+
+  # ships every container's stdout to Loki (Docker socket); Promtail is end-of-life, Alloy replaces it
+  alloy:
+    profiles: ["observability"]
+    image: grafana/alloy:v1.4.2
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    ports: ["12345:12345"]
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]

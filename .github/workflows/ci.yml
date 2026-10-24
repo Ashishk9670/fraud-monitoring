@@ -88,3 +88,35 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose --profile app down -v
+
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and unit-test Prometheus alert rules
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD:/w" -w /w prom/prometheus:v2.55.1 check rules monitoring/alerts.yml
+          docker run --rm --entrypoint promtool -v "$PWD:/w" -w /w prom/prometheus:v2.55.1 test rules monitoring/alerts.test.yml
+      - name: Start the observability stack
+        run: docker compose --profile observability up -d prometheus loki tempo alloy grafana
+      - name: Smoke test (rules loaded, Loki/Tempo ready, Grafana datasources healthy)
+        run: |
+          wait_for() { for i in $(seq 1 60); do curl -fsS "$1" >/dev/null 2>&1 && return 0; sleep 2; done; echo "timeout: $1"; return 1; }
+          wait_for http://localhost:9090/-/ready
+          wait_for http://localhost:3100/ready
+          wait_for http://localhost:3200/ready
+          wait_for http://localhost:3000/api/health
+          curl -fsS http://localhost:9090/api/v1/rules | grep -q FraudAlertLatencyHigh
+          for ds in prometheus loki tempo; do
+            for i in $(seq 1 20); do
+              curl -fsS -u admin:admin "http://localhost:3000/api/datasources/uid/$ds/health" | tee /dev/stderr | grep -q '"status":"OK"' && break
+              [ "$i" = 20 ] && { echo "datasource $ds unhealthy"; exit 1; }
+              sleep 3
+            done
+          done
+      - name: Logs
+        if: failure()
+        run: docker compose --profile observability logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose --profile observability down -v

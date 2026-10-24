@@ -130,6 +130,17 @@ curl -H 'X-API-Key: dev-local-key' localhost:8080/api/replay/1a2b3c4d/alerts   #
 
 Architecture decisions are recorded in [`docs/adr/`](docs/adr/).
 
+## Observability
+
+`make observability-up` starts Prometheus (9090, alert rules), Grafana (3000), Loki + Alloy (container logs) and Tempo
+(OTLP traces on 4318). Grafana is provisioned with Prometheus, Loki and Tempo datasources: log lines carry the trace id
+(`[fraud-monitoring,<traceId>,<spanId>]`) and link to the trace in Tempo, and a Tempo span links back to its logs.
+Enable tracing with `TRACING_ENABLED=true`.
+
+SLO alerts live in [`monitoring/alerts.yml`](monitoring/alerts.yml) (alert latency, 5xx error rate, consumer lag, publish
+failures, app down), unit-tested with `promtool` (`make lint-monitoring`). Each alert links to a runbook in
+[`docs/runbooks/`](docs/runbooks/).
+
 ## Tests
 
 | Layer | What | Needs Docker | Command |
@@ -138,7 +149,10 @@ Architecture decisions are recorded in [`docs/adr/`](docs/adr/).
 | Property | jqwik properties for window arithmetic, threshold folding, rule validation and score bounds (`WindowPropertiesTest`) | no | `mvn test` |
 | Architecture | ArchUnit package-boundary rules (`ArchitectureTest`) | no | `mvn test` |
 | API | Full Spring context: REST (RestAssured), GraphQL queries/mutation/subscription, SSE, Kafka Streams end to end. Uses embedded Kafka, H2 (PostgreSQL mode), in-memory analytics and fake Redis (`application-test.yml`, `TestInfra`) | no | `mvn test` |
+| Contract | Real serialized alert/transaction events validated against the JSON schemas referenced by `asyncapi/asyncapi.yaml` (`EventContractTest`); GraphQL schema snapshot (`GraphQlSchemaSnapshotTest`, update with `-Dgraphql.snapshot.update=true`) | no | `mvn test` |
 | Integration | `*IT` classes with Testcontainers: real Kafka, Redis, Postgres, ClickHouse (`FullStackIT`). Skipped automatically when Docker is unavailable | yes | `mvn verify` |
+| Chaos | `ChaosIT`: Toxiproxy cuts Redis, then Kafka, mid-run; asserts graceful degradation and automatic recovery | yes | `mvn verify` |
+| Mutation | PIT on `streams`, `rules`, `scoring` (optional; CI workflow `mutation.yml`, manual + weekly; threshold in `pom.xml`) | no | `mvn -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage` |
 | E2E UI | Playwright (`e2e/`) drives the dashboard against a running stack | yes (or local stand-in) | see below |
 
 Coverage: Jacoco runs with the tests; report at `target/site/jacoco/index.html` (`mvn verify`).
