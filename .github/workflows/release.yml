@@ -58,7 +58,7 @@ jobs:
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
         run: cosign attest --yes --type cyclonedx --predicate target/sbom.json "$IMAGE"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
           path: target/sbom.json

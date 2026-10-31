@@ -22,7 +22,7 @@ jobs:
           cache: maven
       # PIT on streams/rules/scoring; fails below pitest.mutation.threshold (pom.xml)
       - run: mvn -B -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: pit-report
