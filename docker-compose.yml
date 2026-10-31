@@ -122,7 +122,7 @@ services:
   # ships every container's stdout to Loki (Docker socket); Promtail is end-of-life, Alloy replaces it
   alloy:
     profiles: ["observability"]
-    image: grafana/alloy:v1.4.2
+    image: grafana/alloy:v1.21.2
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
     ports: ["12345:12345"]
     volumes:
