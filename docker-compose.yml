@@ -105,7 +105,7 @@ services:
 
   loki:
     profiles: ["observability"]
-    image: grafana/loki:3.2.0
+    image: grafana/loki:3.7.9
     command: ["-config.file=/etc/loki/loki.yml"]
     ports: ["3100:3100"]
     volumes:
