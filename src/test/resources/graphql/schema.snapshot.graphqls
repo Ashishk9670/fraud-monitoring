@@ -1,0 +1,96 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type AccountRisk {
+  accountId: String!
+  alertCount: Int!
+  maxScore: Float!
+}
+
+type Alert {
+  accountId: String!
+  createdAt: String!
+  id: ID!
+  locations: [String!]!
+  reason: String!
+  riskScore: Float
+  rule: String!
+  score: Float!
+  severity: Severity!
+  transactionCount: Int!
+  transactionId: String
+  windowEnd: String
+  windowStart: String
+}
+
+type FraudCase {
+  accountId: String!
+  alertId: String!
+  assignee: String
+  createdAt: String!
+  id: ID!
+  notes: String
+  reason: String!
+  rule: String!
+  score: Float!
+  severity: Severity!
+  status: CaseStatus!
+  transactionCount: Int!
+  updatedAt: String!
+}
+
+type Mutation {
+  updateCase(assignee: String, id: ID!, notes: String, status: CaseStatus): FraudCase!
+  updateRules(input: RuleUpdateInput!): RuleSettings!
+}
+
+type Query {
+  alertCountsByRule(sinceMinutes: Int = 60): [RuleCount!]!
+  alerts(limit: Int = 50): [Alert!]!
+  case(id: ID!): FraudCase
+  cases(limit: Int = 50, status: CaseStatus): [FraudCase!]!
+  rules: RuleSettings!
+  topRiskAccounts(limit: Int = 10, sinceMinutes: Int = 60): [AccountRisk!]!
+}
+
+type RuleCount {
+  count: Int!
+  rule: String!
+}
+
+type RuleSettings {
+  highValueAmount: Float!
+  maxTransactions: Int!
+  minDistinctLocations: Int!
+  updatedAt: String
+  updatedBy: String
+  windowSeconds: Int!
+}
+
+type Subscription {
+  alertStream(minSeverity: Severity): Alert!
+}
+
+enum CaseStatus {
+  CONFIRMED_FRAUD
+  FALSE_POSITIVE
+  IN_REVIEW
+  OPEN
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  LOW
+  MEDIUM
+}
+
+input RuleUpdateInput {
+  highValueAmount: Float
+  maxTransactions: Int
+  minDistinctLocations: Int
+  windowSeconds: Int
+}

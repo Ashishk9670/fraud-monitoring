@@ -14,16 +14,22 @@ public class TransactionPublisher {
     private final KafkaTemplate<String, String> kafka;
 
     private final Counter published;
+    private final Counter failed;
 
     public TransactionPublisher(KafkaTemplate<String, String> kafka, MeterRegistry metrics) {
         this.kafka = kafka;
         this.published = Counter.builder("fraud.transactions.published")
                 .description("Transactions published to Kafka").register(metrics);
+        this.failed = Counter.builder("fraud.transactions.publish.failed")
+                .description("Transactions Kafka did not acknowledge (e.g. broker unreachable)").register(metrics);
     }
 
     public void publish(Transaction t) {
         try {
-            kafka.send(Topics.TRANSACTIONS, t.accountId(), Json.MAPPER.writeValueAsString(t));
+            kafka.send(Topics.TRANSACTIONS, t.accountId(), Json.MAPPER.writeValueAsString(t))
+                    .whenComplete((r, ex) -> {
+                        if (ex != null) failed.increment();
+                    });
             published.increment();
         } catch (Exception e) {
             throw new IllegalStateException("Failed to publish transaction " + t.id(), e);

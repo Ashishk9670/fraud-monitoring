@@ -6,6 +6,8 @@ import com.example.fraud.config.Topics;
 import com.example.fraud.json.Json;
 import com.example.fraud.model.FraudAlert;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.time.Duration;
+import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -49,5 +51,17 @@ public class AlertConsumer {
             log.warn("Analytics indexing failed for alert {}: {}", alert.id(), e.toString());
         }
         broadcaster.publish(alert);
+        recordLatency(alert);
+    }
+
+    /** End-to-end alert latency (SLO): triggering transaction time (window end) until the case is opened. */
+    private void recordLatency(FraudAlert alert) {
+        Instant from = alert.windowEnd() != null ? alert.windowEnd() : alert.createdAt();
+        if (from == null) return;
+        Duration d = Duration.between(from, Instant.now());
+        io.micrometer.core.instrument.Timer.builder("fraud.alert.latency")
+                .description("Time from the triggering transaction to the alert being processed into a case")
+                .publishPercentileHistogram().register(metrics)
+                .record(d.isNegative() ? Duration.ZERO : d);
     }
 }

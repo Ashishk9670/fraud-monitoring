@@ -9,6 +9,11 @@ import com.example.fraud.cases.FraudCase;
 import com.example.fraud.messaging.AlertBroadcaster;
 import com.example.fraud.model.FraudAlert;
 import com.example.fraud.model.Severity;
+import com.example.fraud.rules.RuleService;
+import com.example.fraud.rules.RuleSettings;
+import com.example.fraud.rules.RuleUpdate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
@@ -24,11 +29,14 @@ public class FraudGraphQlController {
     private final CaseService cases;
     private final AnalyticsStore analytics;
     private final AlertBroadcaster broadcaster;
+    private final RuleService rules;
 
-    public FraudGraphQlController(CaseService cases, AnalyticsStore analytics, AlertBroadcaster broadcaster) {
+    public FraudGraphQlController(CaseService cases, AnalyticsStore analytics, AlertBroadcaster broadcaster,
+                                RuleService rules) {
         this.cases = cases;
         this.analytics = analytics;
         this.broadcaster = broadcaster;
+        this.rules = rules;
     }
 
     private static int clamp(Integer limit, int dflt) {
@@ -59,6 +67,17 @@ public class FraudGraphQlController {
     public List<AccountRisk> topRiskAccounts(@Argument Integer sinceMinutes, @Argument Integer limit) {
         return analytics.topRiskAccounts(Duration.ofMinutes(sinceMinutes == null ? 60 : sinceMinutes),
                 clamp(limit, 10));
+    }
+
+    @QueryMapping
+    public RuleSettings rules() {
+        return rules.settings();
+    }
+
+    @MutationMapping
+    public RuleSettings updateRules(@Argument RuleUpdate input) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return rules.update(input, auth == null ? "unknown" : auth.getName());
     }
 
     @MutationMapping

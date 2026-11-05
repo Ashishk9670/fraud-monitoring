@@ -6,3 +6,33 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # log line -> trace: the app logs "[fraud-monitoring,<traceId>,<spanId>]"
+      derivedFields:
+        - name: TraceID
+          datasourceUid: tempo
+          matcherRegex: '\[fraud-monitoring,([0-9a-f]{32}),'
+          url: '$${__value.raw}'
+          urlDisplayLabel: View trace in Tempo
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # trace -> logs: jump from a span to the log lines carrying its trace id
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        customQuery: true
+        query: '{service="app"} |= "$${__trace.traceId}"'
+      tracesToMetrics:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true

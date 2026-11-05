@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Ashishk9670/fraud-monitoring/asyncapi/schemas/transaction.schema.json",
+  "title": "Transaction",
+  "description": "A payment transaction published to the 'transactions' topic.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "accountId", "merchantId", "amount", "currency", "location", "timestamp"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "accountId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "merchantId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "amount": { "type": "number", "minimum": 0.01, "maximum": 1000000000 },
+    "currency": { "type": "string", "minLength": 1, "maxLength": 8 },
+    "location": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "timestamp": { "type": "string", "format": "date-time" }
+  }
+}

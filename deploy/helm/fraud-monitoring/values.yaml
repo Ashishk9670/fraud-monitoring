@@ -1,0 +1,45 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/ashishk9670/fraud-monitoring
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Non-secret configuration, rendered into a ConfigMap and injected as env vars.
+config:
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/fraud
+  SPRING_DATA_REDIS_HOST: redis
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  ANALYTICS_CLICKHOUSE_URL: http://clickhouse:8123
+  TRACING_ENABLED: "false"
+  OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://tempo:4318/v1/traces
+
+# Name of an existing Secret holding FRAUD_API_KEYS, SPRING_DATASOURCE_PASSWORD, ...
+# Create it with External Secrets or Sealed Secrets (see deploy/secrets-examples). No secret values live in this chart.
+existingSecret: fraud-monitoring
+
+service:
+  type: ClusterIP
+  port: 80
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: /actuator/prometheus

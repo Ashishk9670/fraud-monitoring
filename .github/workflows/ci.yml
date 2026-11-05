@@ -19,14 +19,20 @@ jobs:
         run: mvn -B spotless:check
       # unit tests + Docker-free API tests (embedded Kafka, H2, fake Redis); fails below the Jacoco line-coverage gate
       - run: mvn -B -Pcoverage-gate verify -DskipITs=true -Dfailsafe.skip=true
-      - uses: actions/upload-artifact@v4
+      - name: SBOM (CycloneDX)
+        run: mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom -DoutputFormat=json -DoutputName=sbom -DincludeTestScope=false
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom-cyclonedx
+          path: target/sbom.json
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: unit-test-and-coverage
           path: |
             target/surefire-reports
             target/site/jacoco
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: app-jar
           path: target/fraud-monitoring-*.jar
@@ -44,8 +50,10 @@ jobs:
       # Testcontainers (Kafka, Redis, Postgres, ClickHouse) -- Docker is available on ubuntu-latest
       - run: mvn -B verify -Dtest='NoSuchTest' -Dsurefire.failIfNoSpecifiedTests=false
       - name: Assert the Testcontainers ITs really ran (not skipped)
-        run: python3 .github/scripts/assert-tests-ran.py target/failsafe-reports FullStackIT 2
-      - uses: actions/upload-artifact@v4
+        run: |
+          python3 .github/scripts/assert-tests-ran.py target/failsafe-reports FullStackIT 2
+          python3 .github/scripts/assert-tests-ran.py target/failsafe-reports ChaosIT 3
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: integration-reports
@@ -73,7 +81,7 @@ jobs:
       - name: Run Playwright
         working-directory: e2e
         run: npx playwright test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: playwright-report
@@ -86,3 +94,38 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose --profile app down -v
+
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate and unit-test Prometheus alert rules
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD:/w" -w /w prom/prometheus:v2.55.1 check rules monitoring/alerts.yml
+          docker run --rm --entrypoint promtool -v "$PWD:/w" -w /w prom/prometheus:v2.55.1 test rules monitoring/alerts.test.yml
+      - name: Start the observability stack
+        run: docker compose --profile observability up -d prometheus loki tempo alloy grafana
+      - name: Smoke test (rules loaded, Loki/Tempo ready, Grafana datasources healthy)
+        run: |
+          wait_for() { for i in $(seq 1 60); do curl -fsS "$1" >/dev/null 2>&1 && return 0; sleep 2; done; echo "timeout: $1"; return 1; }
+          wait_for http://localhost:9090/-/ready
+          wait_for http://localhost:3100/ready
+          wait_for http://localhost:3200/ready
+          wait_for http://localhost:3000/api/health
+          curl -fsS http://localhost:9090/api/v1/rules | grep -q FraudAlertLatencyHigh
+          for ds in prometheus loki; do
+            for i in $(seq 1 20); do
+              curl -sS -u admin:admin "http://localhost:3000/api/datasources/uid/$ds/health" | tee /dev/stderr | grep -q '"status":"OK"' && break
+              [ "$i" = 20 ] && { echo "datasource $ds unhealthy"; exit 1; }
+              sleep 3
+            done
+          done
+          # Tempo's Grafana plugin has no backend health check: provisioned? reachable through the Grafana proxy?
+          curl -fsS -u admin:admin http://localhost:3000/api/datasources/uid/tempo | grep -q tracesToLogsV2
+          curl -fsS -u admin:admin http://localhost:3000/api/datasources/proxy/uid/tempo/api/echo | grep -q echo
+      - name: Logs
+        if: failure()
+        run: docker compose --profile observability logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose --profile observability down -v

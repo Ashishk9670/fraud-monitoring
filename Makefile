@@ -1,4 +1,4 @@
-.PHONY: app-up observability-up loadtest e2e-local build test unit integration verify infra-up infra-down run run-sim e2e-install e2e e2e-local-app coverage
+.PHONY: demo screenshots lint-monitoring app-up observability-up loadtest e2e-local build test unit integration verify infra-up infra-down run run-sim e2e-install e2e e2e-local-app coverage
 
 build:            ## compile without tests
 	mvn -q -DskipTests compile
@@ -43,8 +43,23 @@ e2e-local-app:    ## Docker-free app (embedded Kafka, H2, fake Redis) for local 
 app-up:           ## whole stack incl. the app image (needs Docker)
 	docker compose --profile app up -d --build --wait
 
-observability-up: ## + Prometheus (9090), Grafana (3000, dashboard "Fraud Monitoring"), Jaeger (16686)
+observability-up: ## + Prometheus (9090, alert rules), Grafana (3000), Loki logs + Tempo traces (Alloy ships logs)
 	docker compose --profile app --profile observability up -d --build
 
 loadtest:         ## k6 ingest burst against http://localhost:8080 (needs k6)
 	k6 run -e API_KEY=$${API_KEY:-dev-local-key} loadtest/ingest-burst.js
+
+lint-monitoring:  ## validate Prometheus rules + unit-test the alerts (needs Docker)
+	docker run --rm --entrypoint promtool -v $$PWD:/w -w /w prom/prometheus:v2.55.1 check rules monitoring/alerts.yml
+	docker run --rm --entrypoint promtool -v $$PWD:/w -w /w prom/prometheus:v2.55.1 test rules monitoring/alerts.test.yml
+
+demo:             ## bring the whole stack up (app + observability) and seed demo data (needs Docker, curl)
+	docker compose --profile app --profile observability up -d --build --wait
+	@for a in demo-acct-1 demo-acct-2 demo-acct-3; do \
+	  curl -fsS -XPOST -H "X-API-Key: $${API_KEY:-dev-local-key}" "localhost:8080/api/simulator/fraud-burst?accountId=$$a&count=12" >/dev/null && echo "seeded fraud burst for $$a"; \
+	done
+	@curl -fsS -XPOST -H "X-API-Key: $${API_KEY:-dev-local-key}" -H 'content-type: application/json' localhost:8080/api/blocklist -d '{"type":"ACCOUNT","value":"demo-blocked","reason":"demo"}' >/dev/null 2>&1 || true
+	@echo "Dashboard http://localhost:8080  Grafana http://localhost:3000  Prometheus http://localhost:9090  (stop: docker compose --profile app --profile observability down -v)"
+
+screenshots:      ## regenerate docs/img with the Docker-free stand-in app (make e2e-local-app, port 8099) running
+	cd e2e && BASE_URL=http://127.0.0.1:8099 API_KEY=test-key SCREENSHOTS=1 npx playwright test screenshots

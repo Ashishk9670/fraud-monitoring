@@ -65,5 +65,18 @@ class FullStackIT extends ContainersBase {
                 assertThat(analytics.alertCountsByRule(Duration.ofHours(1))).isNotEmpty());
         await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
                 assertThat(features.get(account)).containsKey("txn_count"));
+
+        // Replay the stored range from ClickHouse into the isolated replay topology.
+        java.time.Instant from = java.time.Instant.now().minus(Duration.ofHours(1));
+        java.time.Instant to = java.time.Instant.now().plus(Duration.ofHours(1));
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                assertThat(analytics.transactionsBetween(from, to, 100000)).filteredOn(t -> account.equals(t.accountId()))
+                        .hasSize(12));
+        String id = given().header("X-API-Key", "dev-local-key").contentType(ContentType.JSON)
+                .body(Map.of("from", from.toString(), "to", to.toString()))
+                .post("/api/replay").then().statusCode(202).extract().path("id");
+        await().atMost(Duration.ofSeconds(90)).untilAsserted(() ->
+                assertThat(given().header("X-API-Key", "dev-local-key").get("/api/replay/" + id + "/alerts")
+                        .then().statusCode(200).extract().jsonPath().getList("accountId", String.class)).contains(account));
     }
 }

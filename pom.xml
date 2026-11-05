@@ -19,15 +19,22 @@
     <java.version>21</java.version>
     <maven.compiler.release>21</maven.compiler.release>
     <testcontainers.version>1.20.3</testcontainers.version>
-    <rest-assured.version>5.5.0</rest-assured.version>
+    <rest-assured.version>6.1.0</rest-assured.version>
+    <jqwik.version>1.9.3</jqwik.version>
+    <archunit.version>1.4.1</archunit.version>
+    <json-schema-validator.version>1.5.6</json-schema-validator.version>
     <jacoco.version>0.8.15</jacoco.version>
-    <spotless.version>2.43.0</spotless.version>
+    <spotless.version>3.10.4</spotless.version>
     <jacoco.min.line.coverage>0.70</jacoco.min.line.coverage>
+    <pitest.version>1.20.0</pitest.version>
+    <pitest.junit5.version>1.2.2</pitest.junit5.version>
+    <!-- first measured mutation score: 73% (98/134); threshold leaves a small margin -->
+    <pitest.mutation.threshold>70</pitest.mutation.threshold>
     <!-- security overrides of Spring Boot managed versions (CVE fixes ahead of the next Boot release) -->
     <jackson-bom.version>2.21.7</jackson-bom.version>
     <netty.version>4.1.137.Final</netty.version>
     <postgresql.version>42.7.12</postgresql.version>
-    <lz4.version>1.11.4</lz4.version>
+    <lz4.version>1.12.0</lz4.version>
   </properties>
 
   <dependencyManagement>
@@ -75,8 +82,12 @@
     <dependency><groupId>org.testcontainers</groupId><artifactId>kafka</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
     <dependency><groupId>org.testcontainers</groupId><artifactId>clickhouse</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>org.testcontainers</groupId><artifactId>toxiproxy</artifactId><scope>test</scope></dependency>
     <dependency><groupId>io.rest-assured</groupId><artifactId>rest-assured</artifactId><version>${rest-assured.version}</version><scope>test</scope></dependency>
     <dependency><groupId>org.awaitility</groupId><artifactId>awaitility</artifactId><scope>test</scope></dependency>
+    <dependency><groupId>net.jqwik</groupId><artifactId>jqwik</artifactId><version>${jqwik.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.networknt</groupId><artifactId>json-schema-validator</artifactId><version>${json-schema-validator.version}</version><scope>test</scope></dependency>
+    <dependency><groupId>com.tngtech.archunit</groupId><artifactId>archunit-junit5</artifactId><version>${archunit.version}</version><scope>test</scope></dependency>
   </dependencies>
 
   <build>
@@ -130,6 +141,43 @@
   </build>
 
   <profiles>
+    <!-- Optional mutation testing: mvn -Pmutation test-compile org.pitest:pitest-maven:mutationCoverage -->
+    <profile>
+      <id>mutation</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.pitest</groupId>
+            <artifactId>pitest-maven</artifactId>
+            <version>${pitest.version}</version>
+            <dependencies>
+              <dependency>
+                <groupId>org.pitest</groupId>
+                <artifactId>pitest-junit5-plugin</artifactId>
+                <version>${pitest.junit5.version}</version>
+              </dependency>
+            </dependencies>
+            <configuration>
+              <targetClasses>
+                <param>com.example.fraud.streams.*</param>
+                <param>com.example.fraud.rules.*</param>
+                <param>com.example.fraud.scoring.*</param>
+              </targetClasses>
+              <targetTests>
+                <param>com.example.fraud.streams.*</param>
+                <param>com.example.fraud.rules.*</param>
+                <param>com.example.fraud.scoring.*</param>
+              </targetTests>
+              <mutationThreshold>${pitest.mutation.threshold}</mutationThreshold>
+              <outputFormats><param>HTML</param><param>XML</param></outputFormats>
+              <timestampedReports>false</timestampedReports>
+              <threads>2</threads>
+              <argLine>-XX:+EnableDynamicAgentLoading</argLine>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
     <!-- CI quality gate: mvn -Pcoverage-gate verify  (unit + API tests; fails below the line-coverage minimum) -->
     <profile>
       <id>coverage-gate</id>

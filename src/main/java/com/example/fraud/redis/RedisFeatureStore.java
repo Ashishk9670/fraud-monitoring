@@ -25,6 +25,7 @@ public class RedisFeatureStore implements FeatureStore {
         var h = redis.opsForHash();
         h.increment(key, "txn_count", 1);
         h.increment(key, "total_amount", t.amount().doubleValue());
+        h.increment(key, "total_amount_sq", t.amount().doubleValue() * t.amount().doubleValue());
         h.put(key, "last_location", t.location());
         h.put(key, "last_amount", t.amount().toPlainString());
         h.put(key, "last_seen", t.timestamp().toString());

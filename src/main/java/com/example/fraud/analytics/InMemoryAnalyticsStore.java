@@ -27,6 +27,13 @@ public class InMemoryAnalyticsStore implements AnalyticsStore {
     }
 
     @Override
+    public List<Transaction> transactionsBetween(Instant from, Instant to, int limit) {
+        return transactions.stream()
+                .filter(t -> !t.timestamp().isBefore(from) && t.timestamp().isBefore(to))
+                .sorted(Comparator.comparing(Transaction::timestamp)).limit(limit).toList();
+    }
+
+    @Override
     public void indexAlert(FraudAlert a) {
         alerts.add(a);
     }

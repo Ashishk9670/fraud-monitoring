@@ -170,4 +170,132 @@ class FraudTopologyTest {
         in.pipeInput("a1", t, t.timestamp());
         assertThat(out.readValuesToList()).hasSize(1);
     }
+
+    @Test
+    void ruleChangesApplyWithoutRestartingTheTopology() {
+        driver.close();
+        var current = new java.util.concurrent.atomic.AtomicReference<>(FraudRulesProperties.defaults());
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, (com.example.fraud.rules.RulesProvider) current::get, blocklist, velocity,
+                features);
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-reload-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        // 3 txns from 2 locations: below the default threshold of 5 -> no alert, and 15000 is below nothing yet.
+        send(tx("r1", "US", "20000.00", T0));
+        output.readValuesToList(); // default high-value alert
+        send(tx("r1", "GB", "10.00", T0.plusSeconds(1)));
+        send(tx("r1", "US", "10.00", T0.plusSeconds(2)));
+        assertThat(output.isEmpty()).isTrue();
+
+        // Tighten: >2 txns, high value at 100, 30 second windows.
+        current.set(new FraudRulesProperties(Duration.ofSeconds(30), 2, 2, new BigDecimal("100")));
+        send(tx("r2", "US", "10.00", T0.plusSeconds(120)));
+        send(tx("r2", "GB", "10.00", T0.plusSeconds(121)));
+        send(tx("r2", "US", "10.00", T0.plusSeconds(122)));
+        List<FraudAlert> alerts = output.readValuesToList();
+        assertThat(alerts).hasSize(1);
+        assertThat(alerts.get(0).rule()).isEqualTo(FraudAlert.RULE_VELOCITY_MULTI_LOCATION);
+        assertThat(Duration.between(alerts.get(0).windowStart(), alerts.get(0).windowEnd()))
+                .isEqualTo(Duration.ofSeconds(30));
+
+        send(tx("r3", "US", "150.00", T0.plusSeconds(200)));
+        assertThat(output.readValuesToList()).extracting(FraudAlert::rule).containsExactly(FraudAlert.RULE_HIGH_VALUE);
+    }
+
+    @Test
+    void alertsCarryRiskScoreFromThePluggableScorer() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults()),
+                blocklist, velocity, features, new com.example.fraud.scoring.ZScoreRiskScorer());
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-score-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        for (int i = 0; i < 10; i++) send(tx("s1", "US", i % 2 == 0 ? "100.00" : "110.00", T0.plusSeconds(i * 120L)));
+        assertThat(output.isEmpty()).isTrue();
+        send(tx("s1", "US", "50000.00", T0.plusSeconds(2000)));
+        FraudAlert a = output.readValuesToList().get(0);
+        assertThat(a.rule()).isEqualTo(FraudAlert.RULE_HIGH_VALUE);
+        assertThat(a.riskScore()).isNotNull().isEqualTo(1.0);
+
+        // A new account has no history: alert is raised but without a risk score.
+        send(tx("fresh", "US", "50000.00", T0.plusSeconds(2001)));
+        assertThat(output.readValuesToList().get(0).riskScore()).isNull();
+    }
+
+    @Test
+    void failingScorerDoesNotBreakTheStream() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        FraudTopology.build(builder, com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults()),
+                blocklist, velocity, features, (t, f) -> { throw new IllegalStateException("boom"); });
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-failscore-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        driver = new TopologyTestDriver(builder.build(), p);
+        input = driver.createInputTopic(Topics.TRANSACTIONS, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+        send(tx("a1", "US", "50000.00", T0));
+        FraudAlert a = output.readValuesToList().get(0);
+        assertThat(a.rule()).isEqualTo(FraudAlert.RULE_HIGH_VALUE);
+        assertThat(a.riskScore()).isNull();
+    }
+
+    @Test
+    void replayPipelineIsIsolatedFromLiveStateAndTopics() {
+        driver.close();
+        StreamsBuilder builder = new StreamsBuilder();
+        var rules = com.example.fraud.rules.RulesProvider.fixed(FraudRulesProperties.defaults());
+        FraudTopology.build(builder, rules, blocklist, velocity, features);
+        FraudTopology.buildReplay(builder, rules, blocklist);
+        Properties p = new Properties();
+        p.put(StreamsConfig.APPLICATION_ID_CONFIG, "topology-replay-" + System.nanoTime());
+        p.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "dummy:1234");
+        p.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, 0);
+        driver = new TopologyTestDriver(builder.build(), p);
+        var replayIn = driver.createInputTopic(Topics.TRANSACTIONS_REPLAY, Serdes.String().serializer(),
+                Json.serde(Transaction.class).serializer());
+        var replayOut = driver.createOutputTopic(Topics.FRAUD_ALERTS_REPLAY, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+        output = driver.createOutputTopic(Topics.FRAUD_ALERTS, Serdes.String().deserializer(),
+                Json.serde(FraudAlert.class).deserializer());
+
+        // Two runs over the same history must each alert once (no shared window state), at historic timestamps.
+        Instant old = Instant.parse("2020-06-01T00:00:00Z");
+        String[] locs = {"US", "GB", "IN"};
+        for (String run : new String[] {"run1", "run2"}) {
+            for (int i = 0; i < 6; i++) {
+                Transaction t = tx("a1", locs[i % 3], "50.00", old.plusSeconds(i));
+                replayIn.pipeInput(run + "|a1", t, t.timestamp());
+            }
+        }
+        var keyed = replayOut.readKeyValuesToList();
+        assertThat(keyed).extracting(kv -> kv.key).containsExactlyInAnyOrder("run1|a1", "run2|a1");
+        assertThat(keyed).allSatisfy(kv -> {
+            assertThat(kv.value.accountId()).isEqualTo("a1");
+            assertThat(kv.value.rule()).isEqualTo(FraudAlert.RULE_VELOCITY_MULTI_LOCATION);
+        });
+
+        // No live alerts and no Redis side effects.
+        assertThat(output.isEmpty()).isTrue();
+        assertThat(features.get("a1")).isEmpty();
+        assertThat(velocity.current("a1")).containsEntry("1m", 0L);
+    }
 }
