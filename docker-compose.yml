@@ -39,7 +39,7 @@ services:
       POSTGRES_USER: fraud
       POSTGRES_PASSWORD: fraud
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fraud -d fraud"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U fraud -d fraud"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -63,6 +63,7 @@ services:
   # ---- the application itself: `docker compose --profile app up -d --build --wait` ----
   app:
     profiles: ["app"]
+    restart: on-failure   # safety net: never leave the stack dead if a dependency is briefly unavailable
     build: .
     image: fraud-monitoring:local
     ports: ["8080:8080"]
