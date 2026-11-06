@@ -69,4 +69,53 @@ class RuleServiceTest {
         assertThat(service.current()).isEqualTo(FraudRulesProperties.defaults());
         verify(repo, never()).deleteById(any());
     }
+
+    @Test
+    void staleReloadDoesNotOverwriteANewerUpdate() {
+        // A reload read the row before the update committed ...
+        RuleSettings stale = stored.toSettings();
+        service.update(new RuleUpdate(null, null, 3, null), "alice");
+        // ... and publishes afterwards: it must not win
+        stored.apply(stale, "stale-reader");
+        java.time.Instant older = stale.updatedAt();
+        RuleConfigEntity row = stored;
+        // reload sees an old updatedAt (restore it) and therefore must be ignored
+        try {
+            var f = RuleConfigEntity.class.getDeclaredField("updatedAt");
+            f.setAccessible(true);
+            f.set(row, older);
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError(e);
+        }
+        service.reload();
+        assertThat(service.current().minDistinctLocations()).isEqualTo(3);
+        assertThat(service.settings().updatedBy()).isEqualTo("alice");
+    }
+
+    @Test
+    void updateIsPublishedOnlyAfterCommit() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.update(new RuleUpdate(null, null, 4, null), "alice");
+            assertThat(service.current().minDistinctLocations()).as("not visible before commit")
+                    .isEqualTo(FraudRulesProperties.defaults().minDistinctLocations());
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(org.springframework.transaction.support.TransactionSynchronization::afterCommit);
+            assertThat(service.current().minDistinctLocations()).isEqualTo(4);
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
+
+    @Test
+    void rolledBackUpdateNeverReachesTheTopology() {
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.update(new RuleUpdate(null, null, 4, null), "alice");
+            // rollback: afterCommit is never invoked
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clearSynchronization();
+        }
+        assertThat(service.current()).isEqualTo(FraudRulesProperties.defaults());
+    }
 }

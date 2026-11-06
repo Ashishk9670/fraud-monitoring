@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Owns the runtime rule parameters. The effective value is a volatile snapshot read by the topology for every record;
@@ -57,7 +59,18 @@ public class RuleService implements RulesProvider {
         RuleSettings merged = RuleValidator.merge(row.toSettings(), update);
         row.apply(merged, by);
         RuleSettings saved = repo.save(row).toSettings();
-        publish(saved);
+        // Publish only once the row is committed: a concurrent reload could otherwise read the previous row and
+        // overwrite the new value, and a rolled-back update must never reach the running topology.
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    publish(saved);
+                }
+            });
+        } else {
+            publish(saved);
+        }
         log.info("Fraud rules updated by {}: {}", by, saved);
         return saved;
     }
@@ -71,7 +84,13 @@ public class RuleService implements RulesProvider {
         }
     }
 
-    private void publish(RuleSettings s) {
+    /** Monotonic: a snapshot older than the one already published (e.g. a reload that read before an update) is ignored. */
+    private synchronized void publish(RuleSettings s) {
+        RuleSettings current = this.settings;
+        if (current != null && current.updatedAt() != null && s.updatedAt() != null
+                && s.updatedAt().isBefore(current.updatedAt())) {
+            return;
+        }
         this.settings = s;
         this.snapshot = s.toProperties();
     }
