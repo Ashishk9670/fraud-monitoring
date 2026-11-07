@@ -3,105 +3,255 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Fraud Analyst Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236366f1'/%3E%3Cpath d='M16 6l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V9l8-3z' fill='white'/%3E%3C/svg%3E">
 <style>
-  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; }
+  :root {
+    --bg: #0a0f1d; --surface: #111a2e; --surface-2: #16213a; --border: #22304d;
+    --text: #e8edf7; --muted: #8fa1c1; --accent: #6366f1; --accent-strong: #818cf8;
+    --ok: #34d399; --warn: #fbbf24; --danger: #f87171; --orange: #fb923c; --blue: #60a5fa;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 12px 32px rgba(0,0,0,.28);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f3f5fb; --surface: #ffffff; --surface-2: #f6f8fd; --border: #e2e8f4;
+      --text: #0f172a; --muted: #5b6b8c; --accent: #4f46e5; --accent-strong: #4338ca;
+      --ok: #059669; --warn: #b45309; --danger: #dc2626; --orange: #ea580c; --blue: #2563eb;
+      --shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.06);
+    }
+  }
   * { box-sizing: border-box; }
-  body { margin:0; font:14px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--fg); }
-  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; background:var(--card); }
-  h1 { font-size:18px; margin:0; }
-  main { display:grid; grid-template-columns:1fr 1fr; gap:16px; padding:16px 20px; }
-  section { background:var(--card); border-radius:8px; padding:12px; overflow:auto; max-height:70vh; }
-  h2 { font-size:14px; margin:0 0 8px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:4px 6px; border-bottom:1px solid #334155; font-size:13px; }
-  .sev-CRITICAL { color:#f87171; font-weight:700 } .sev-HIGH { color:#fb923c; font-weight:700 }
-  .sev-MEDIUM { color:#facc15 } .sev-LOW { color:#a3e635 }
-  button { background:var(--accent); color:#0f172a; border:0; border-radius:6px; padding:6px 12px; cursor:pointer; font-weight:600; }
-  #status { margin-right:12px; color:var(--muted); }
-  #status.live { color:#4ade80; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+         font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Inter, sans-serif; }
+  :focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px; border-radius: 6px; }
+
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+           padding: 12px clamp(16px, 3vw, 32px); background: color-mix(in srgb, var(--surface) 88%, transparent);
+           backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+  .brand svg { width: 30px; height: 30px; }
+  .brand small { color: var(--muted); font-weight: 500; font-size: 12.5px; margin-left: 4px; }
+  .tools { margin-left: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .keybox { display: flex; gap: 6px; }
+  input { font: inherit; color: var(--text); background: var(--surface-2); border: 1px solid var(--border);
+          border-radius: 10px; padding: 8px 12px; width: 190px; }
+  input::placeholder { color: var(--muted); }
+  button { font: inherit; font-weight: 600; cursor: pointer; border-radius: 10px; padding: 8px 14px;
+           border: 1px solid transparent; background: var(--accent); color: #fff; transition: background .15s, transform .05s; }
+  button:hover { background: var(--accent-strong); }
+  button:active { transform: translateY(1px); }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+  button.ghost:hover { background: var(--surface-2); }
+  button.small { padding: 4px 11px; font-size: 12.5px; }
+  button[disabled] { opacity: .6; cursor: progress; }
+
+  #status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+            color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); }
+  #status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  #status.live { color: var(--ok); }
+  #status.live::before { background: var(--ok); box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); animation: pulse 2s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 8px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+  main { max-width: 1360px; margin: 0 auto; padding: 22px clamp(16px, 3vw, 32px) 56px; display: grid; gap: 20px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); }
+  .kpi .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+  .kpi .value { font-size: 32px; font-weight: 750; letter-spacing: -.02em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .kpi .hint { color: var(--muted); font-size: 12px; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+  @media (max-width: 1050px) { .layout { grid-template-columns: 1fr; } }
+  .stack { display: grid; gap: 20px; }
+  section.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px 12px; }
+  .card-head h2 { margin: 0; font-size: 15px; letter-spacing: -.005em; }
+  .card-head p { margin: 1px 0 0; color: var(--muted); font-size: 12.5px; }
+  .scroll { overflow: auto; max-height: 520px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 14px; border-top: 1px solid var(--border); font-size: 13.5px; vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--surface); z-index: 1; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; font-weight: 650; }
+  td:first-child, th:first-child { padding-left: 20px; }
+  td:last-child, th:last-child { padding-right: 20px; }
+  .sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; line-height: 1.4; }
+  td.acct { white-space: nowrap; }
+  td .rulename { font-weight: 600; font-size: 13px; }
+  td.mono, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  td.time { color: var(--muted); white-space: nowrap; }
+  td.right, th.right { text-align: right; }
+  tbody tr.fresh { animation: flash 1.6s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--accent) 28%, transparent); } to { background: transparent; } }
+  tr.empty td { text-align: center; color: var(--muted); padding: 34px 20px; }
+
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+  .sev-CRITICAL { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+  .sev-HIGH { background: color-mix(in srgb, var(--orange) 18%, transparent); color: var(--orange); }
+  .sev-MEDIUM { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .sev-LOW { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+  .st-OPEN { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--warn); }
+  .st-IN_REVIEW { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+  .st-CLOSED, .st-RESOLVED, .st-DISMISSED { background: var(--surface-2); color: var(--muted); }
+
+  .rule { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px 20px; border-top: 1px solid var(--border); align-items: center; }
+  .rule .name { font-weight: 600; font-size: 13px; }
+  .rule .count { font-variant-numeric: tabular-nums; font-weight: 700; }
+  .rule .bar { grid-column: 1 / -1; height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+  .rule .bar > i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-strong)); border-radius: 999px; transition: width .4s; }
+  #rules-empty { color: var(--muted); padding: 28px 20px; text-align: center; border-top: 1px solid var(--border); }
+
+  #banner { margin: 0; padding: 12px 16px; border-radius: 12px; font-weight: 600; display: none;
+            background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent); }
+  #banner.show { display: block; }
+  @media (max-width: 700px) {
+    header { position: static; }
+    .tools { margin-left: 0; width: 100%; }
+    .keybox { flex: 1; } .keybox input { flex: 1; width: auto; min-width: 0; }
+    th:first-child, td:first-child { padding-left: 14px; } th:last-child, td:last-child { padding-right: 14px; }
+    /* tables become stacked cards instead of scrolling sideways */
+    .scroll { max-height: none; overflow: visible; }
+    table, tbody { display: block; }
+    thead { display: none; }
+    #alerts tr:not(.empty), #cases tr:not(.empty) { display: grid; gap: 6px 12px; padding: 12px 14px; border-top: 1px solid var(--border); align-items: center; }
+    #alerts tr:not(.empty) td, #cases tr:not(.empty) td { display: block; padding: 0; border: 0; }
+    #alerts tr:not(.empty) { grid-template-columns: 1fr auto; grid-template-areas: "acct sev" "alert alert" "time time"; }
+    #alerts tr:not(.empty) td:nth-child(1) { grid-area: time; font-size: 12px; }
+    #alerts tr:not(.empty) td:nth-child(2) { grid-area: acct; }
+    #alerts tr:not(.empty) td:nth-child(3) { grid-area: alert; }
+    #alerts tr:not(.empty) td:nth-child(4) { grid-area: sev; }
+    #cases tr:not(.empty) { grid-template-columns: 1fr auto; grid-template-areas: "case sev" "status act"; }
+    #cases tr:not(.empty) td:nth-child(1) { grid-area: case; }
+    #cases tr:not(.empty) td:nth-child(2) { grid-area: sev; }
+    #cases tr:not(.empty) td:nth-child(3) { grid-area: status; }
+    #cases tr:not(.empty) td:nth-child(4) { grid-area: act; text-align: right; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Fraud Analyst Dashboard</h1>
-  <div>
-    <input id="apikey" data-testid="apikey" type="password" placeholder="API key" size="14" autocomplete="off">
-    <button id="save-key" data-testid="save-key">Set key</button>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#6366f1"/><path d="M16 6l8 3v6c0 5-3.4 8.6-8 10-4.6-1.4-8-5-8-10V9l8-3z" fill="#fff"/></svg>
+    <span>Fraud Analyst Dashboard<small>real-time</small></span>
+  </div>
+  <div class="tools">
+    <div class="keybox">
+      <input id="apikey" data-testid="apikey" type="password" placeholder="API key" size="14" autocomplete="off" aria-label="API key">
+      <button id="save-key" class="ghost" data-testid="save-key">Set key</button>
+    </div>
     <span id="status" data-testid="status">connecting...</span>
     <button id="burst" data-testid="burst-btn">Simulate fraud burst</button>
   </div>
 </header>
 <main>
-  <section>
-    <h2>Live alerts (<span id="alert-count" data-testid="alert-count">0</span>)</h2>
-    <table><thead><tr><th>Time</th><th>Account</th><th>Rule</th><th>Severity</th><th>Reason</th></tr></thead>
-      <tbody id="alerts" data-testid="alerts"></tbody></table>
-  </section>
-  <section>
-    <h2>Cases <button id="refresh" data-testid="refresh-btn" style="float:right">Refresh</button></h2>
-    <table><thead><tr><th>Account</th><th>Rule</th><th>Severity</th><th>Status</th><th></th></tr></thead>
-      <tbody id="cases" data-testid="cases"></tbody></table>
-  </section>
-  <section>
-    <h2>Alerts by rule (last hour)</h2>
-    <table><tbody id="rules" data-testid="rules"></tbody></table>
-  </section>
+  <p id="banner" role="alert"></p>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">Live alerts this session</div><div class="value" id="alert-count" data-testid="alert-count">0</div><div class="hint">streamed over GraphQL</div></div>
+    <div class="kpi"><div class="label">Open cases</div><div class="value" id="kpi-open">-</div><div class="hint">awaiting an analyst</div></div>
+    <div class="kpi"><div class="label">High / critical</div><div class="value" id="kpi-high">-</div><div class="hint">among loaded cases</div></div>
+    <div class="kpi"><div class="label">Alerts, last hour</div><div class="value" id="kpi-hour">-</div><div class="hint">across all rules</div></div>
+  </div>
+
+  <div class="layout">
+    <section class="card">
+      <div class="card-head"><div><h2>Live alerts</h2><p>New alerts appear here the moment the stream raises them.</p></div></div>
+      <div class="scroll">
+        <table><thead><tr><th>Time</th><th>Account</th><th>Alert</th><th>Severity</th></tr></thead>
+          <tbody id="alerts" data-testid="alerts"><tr class="empty" id="alerts-empty"><td colspan="4">No alerts yet. Waiting for suspicious activity...</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <div class="stack">
+      <section class="card">
+        <div class="card-head"><div><h2>Cases</h2><p>Newest first. Move a case to review to claim it.</p></div>
+          <button id="refresh" class="ghost small" data-testid="refresh-btn">Refresh</button></div>
+        <div class="scroll">
+          <table><thead><tr><th>Case</th><th>Severity</th><th>Status</th><th></th></tr></thead>
+            <tbody id="cases" data-testid="cases"><tr class="empty" id="cases-empty"><td colspan="4">No cases yet.</td></tr></tbody></table>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><div><h2>Alerts by rule</h2><p>Last hour</p></div></div>
+        <div id="rules" data-testid="rules"><div id="rules-empty">No alerts in the last hour.</div></div>
+      </section>
+    </div>
+  </div>
 </main>
 <script>
 const getKey = () => { try { return localStorage.getItem('fraudApiKey') || ''; } catch (e) { return ''; } };
 const authHeaders = (h = {}) => ({ ...h, 'X-API-Key': getKey() });
-const keyInput = document.getElementById('apikey');
+const $ = id => document.getElementById(id);
+const keyInput = $('apikey');
 keyInput.value = getKey();
-document.getElementById('save-key').onclick = () => {
+$('save-key').onclick = () => {
   try { localStorage.setItem('fraudApiKey', keyInput.value.trim()); } catch (e) { /* storage unavailable */ }
   location.reload();
 };
+keyInput.addEventListener('keydown', e => { if (e.key === 'Enter') $('save-key').click(); });
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const banner = msg => { $('banner').textContent = msg || ''; $('banner').classList.toggle('show', !!msg); };
+
 const gql = async (query, variables) => {
-  const r = await fetch('/graphql', { method:'POST', headers: authHeaders({'Content-Type':'application/json'}),
+  const r = await fetch('/graphql', { method: 'POST', headers: authHeaders({'Content-Type':'application/json'}),
     body: JSON.stringify({ query, variables }) });
-  if (r.status === 401) throw new Error('Unauthorized: set a valid API key');
+  if (r.status === 401) { banner('Unauthorized: enter a valid API key (top right) and press Set key.'); throw new Error('Unauthorized: set a valid API key'); }
   const j = await r.json();
   if (j.errors) throw new Error(j.errors.map(e => e.message).join('; '));
+  banner('');
   return j.data;
 };
-const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let alertCount = 0;
 
 function addAlert(a) {
   alertCount++;
-  document.getElementById('alert-count').textContent = alertCount;
+  $('alert-count').textContent = alertCount;
+  const empty = $('alerts-empty'); if (empty) empty.remove();
   const tr = document.createElement('tr');
-  tr.dataset.testid = 'alert-row';
   tr.setAttribute('data-testid', 'alert-row');
-  tr.innerHTML = `<td>${esc(new Date(a.createdAt).toLocaleTimeString())}</td><td>${esc(a.accountId)}</td>` +
-    `<td>${esc(a.rule)}</td><td class="sev-${esc(a.severity)}">${esc(a.severity)}</td><td>${esc(a.reason)}</td>`;
-  document.getElementById('alerts').prepend(tr);
+  tr.className = 'fresh';
+  tr.innerHTML = `<td class="time">${esc(new Date(a.createdAt).toLocaleTimeString())}</td><td class="mono acct">${esc(a.accountId)}</td>` +
+    `<td><span class="rulename">${esc(a.rule)}</span><span class="sub">${esc(a.reason)}</span></td>` +
+    `<td><span class="pill sev-${esc(a.severity)}">${esc(a.severity)}</span></td>`;
+  $('alerts').prepend(tr);
+  while ($('alerts').children.length > 200) $('alerts').lastChild.remove();
 }
 
 async function loadCases() {
   const d = await gql('{ cases(limit: 25) { id accountId rule severity status } }');
-  document.getElementById('cases').innerHTML = d.cases.map(c =>
-    `<tr data-testid="case-row"><td>${esc(c.accountId)}</td><td>${esc(c.rule)}</td>` +
-    `<td class="sev-${esc(c.severity)}">${esc(c.severity)}</td><td>${esc(c.status)}</td>` +
-    `<td><button data-id="${esc(c.id)}" class="review">Review</button></td></tr>`).join('');
+  $('kpi-open').textContent = d.cases.filter(c => c.status === 'OPEN').length;
+  $('kpi-high').textContent = d.cases.filter(c => c.severity === 'HIGH' || c.severity === 'CRITICAL').length;
+  $('cases').innerHTML = d.cases.length ? d.cases.map(c =>
+    `<tr data-testid="case-row"><td><span class="mono acct">${esc(c.accountId)}</span><span class="sub">${esc(c.rule)}</span></td>` +
+    `<td><span class="pill sev-${esc(c.severity)}">${esc(c.severity)}</span></td>` +
+    `<td><span class="pill st-${esc(c.status)}">${esc(c.status)}</span></td>` +
+    `<td class="right"><button data-id="${esc(c.id)}" class="review small ghost">Review</button></td></tr>`).join('')
+    : '<tr class="empty" id="cases-empty"><td colspan="4">No cases yet.</td></tr>';
   document.querySelectorAll('button.review').forEach(b => b.onclick = async () => {
-    await gql('mutation($id: ID!) { updateCase(id:$id, status: IN_REVIEW) { id } }', { id: b.dataset.id });
-    loadCases();
+    b.disabled = true;
+    try { await gql('mutation($id: ID!) { updateCase(id:$id, status: IN_REVIEW) { id } }', { id: b.dataset.id }); }
+    finally { loadCases(); }
   });
 }
 
 async function loadRules() {
   try {
     const d = await gql('{ alertCountsByRule { rule count } }');
-    document.getElementById('rules').innerHTML = d.alertCountsByRule.map(r =>
-      `<tr><td>${esc(r.rule)}</td><td>${r.count}</td></tr>`).join('');
+    const rows = d.alertCountsByRule;
+    $('kpi-hour').textContent = rows.reduce((n, r) => n + r.count, 0);
+    const max = Math.max(...rows.map(r => r.count), 1);
+    $('rules').innerHTML = rows.length ? rows.map(r =>
+      `<div class="rule"><span class="name">${esc(r.rule)}</span><span class="count">${esc(r.count)}</span>` +
+      `<div class="bar"><i style="width:${Math.round(r.count / max * 100)}%"></i></div></div>`).join('')
+      : '<div id="rules-empty">No alerts in the last hour.</div>';
   } catch (e) { console.warn(e); }
 }
 window.addEventListener('unhandledrejection', e => console.warn(e.reason && e.reason.message));
 
 function subscribe() {
-  const status = document.getElementById('status');
+  const status = $('status');
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${proto}//${location.host}/graphql`, 'graphql-transport-ws');
   ws.onopen = () => ws.send(JSON.stringify({ type: 'connection_init', payload: { apiKey: getKey() } }));
@@ -124,9 +274,12 @@ function subscribe() {
   };
 }
 
-document.getElementById('burst').onclick = () =>
-  fetch('/api/simulator/fraud-burst?accountId=acct-ui-' + Date.now(), { method: 'POST', headers: authHeaders() });
-document.getElementById('refresh').onclick = () => { loadCases(); loadRules(); };
+$('burst').onclick = async (e) => {
+  const b = e.currentTarget; b.disabled = true;
+  try { await fetch('/api/simulator/fraud-burst?accountId=acct-ui-' + Date.now(), { method: 'POST', headers: authHeaders() }); }
+  finally { setTimeout(() => { b.disabled = false; }, 600); }
+};
+$('refresh').onclick = () => { loadCases(); loadRules(); };
 loadCases(); loadRules(); subscribe();
 </script>
 </body>
