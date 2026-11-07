@@ -49,7 +49,7 @@ jobs:
           cache: maven
       - name: Generate CycloneDX SBOM
         run: mvn -B -q org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom -DoutputFormat=json -DoutputName=sbom -DincludeTestScope=false
-      - uses: sigstore/cosign-installer@v3.7.0
+      - uses: sigstore/cosign-installer@v4.1.3
       - name: Sign the image (keyless, by digest)
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
