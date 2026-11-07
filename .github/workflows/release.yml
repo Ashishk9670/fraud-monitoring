@@ -53,11 +53,15 @@ jobs:
       - name: Sign the image (keyless, by digest)
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
-        run: cosign sign --yes "$IMAGE"
+        run: |
+          IMAGE="${IMAGE,,}"   # OCI image references must be lowercase; github.repository keeps the owner's capitalisation (Ashishk9670)
+          cosign sign --yes "$IMAGE"
       - name: Attest the SBOM to the image
         env:
           IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}
-        run: cosign attest --yes --type cyclonedx --predicate target/sbom.json "$IMAGE"
+        run: |
+          IMAGE="${IMAGE,,}"   # OCI image references must be lowercase; github.repository keeps the owner's capitalisation (Ashishk9670)
+          cosign attest --yes --type cyclonedx --predicate target/sbom.json "$IMAGE"
       - uses: actions/upload-artifact@v7
         with:
           name: sbom-cyclonedx
