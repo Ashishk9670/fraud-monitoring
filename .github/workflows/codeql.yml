@@ -26,13 +26,13 @@ jobs:
           distribution: temurin
           java-version: 21
           cache: maven
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
       - run: mvn -B -DskipTests -Dspotless.check.skip=true package
       # Private repos without GitHub Advanced Security cannot upload to the Security tab, so keep SARIF as an artifact.
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
           upload: never
