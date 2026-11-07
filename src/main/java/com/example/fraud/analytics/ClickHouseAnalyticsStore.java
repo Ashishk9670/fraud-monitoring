@@ -62,15 +62,31 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
     }
 
     private void insert(String table, ObjectNode row) {
+        insertRows(table, List.of(row));
+    }
+
+    /** One INSERT with many newline-delimited JSON rows: ClickHouse is built for batched writes, one request per row does not scale. */
+    private void insertRows(String table, List<ObjectNode> rows) {
+        if (rows.isEmpty()) return;
         String sql = "INSERT INTO " + table + " FORMAT JSONEachRow";
+        StringBuilder body = new StringBuilder(rows.size() * 160);
+        for (ObjectNode row : rows) body.append(row.toString()).append('\n');
         try {
             http.post().uri(uri -> uri.path("/").queryParam("query", sql).build())
-                    .contentType(MediaType.TEXT_PLAIN).body(row.toString()).retrieve().toBodilessEntity();
+                    .contentType(MediaType.TEXT_PLAIN).body(body.toString()).retrieve().toBodilessEntity();
         } catch (RuntimeException e) {
             createSchema(); // tables may not exist yet; retry once
             http.post().uri(uri -> uri.path("/").queryParam("query", sql).build())
-                    .contentType(MediaType.TEXT_PLAIN).body(row.toString()).retrieve().toBodilessEntity();
+                    .contentType(MediaType.TEXT_PLAIN).body(body.toString()).retrieve().toBodilessEntity();
         }
+    }
+
+    private static ObjectNode transactionRow(Transaction t) {
+        ObjectNode n = Json.MAPPER.createObjectNode();
+        n.put("id", t.id()).put("account_id", t.accountId()).put("merchant_id", t.merchantId())
+                .put("amount", t.amount().doubleValue()).put("currency", t.currency())
+                .put("location", t.location()).put("ts", TS.format(t.timestamp()));
+        return n;
     }
 
     private JsonNode query(String sql) {
@@ -85,11 +101,12 @@ public class ClickHouseAnalyticsStore implements AnalyticsStore {
 
     @Override
     public void indexTransaction(Transaction t) {
-        ObjectNode n = Json.MAPPER.createObjectNode();
-        n.put("id", t.id()).put("account_id", t.accountId()).put("merchant_id", t.merchantId())
-                .put("amount", t.amount().doubleValue()).put("currency", t.currency())
-                .put("location", t.location()).put("ts", TS.format(t.timestamp()));
-        insert("transactions", n);
+        insert("transactions", transactionRow(t));
+    }
+
+    @Override
+    public void indexTransactions(List<Transaction> batch) {
+        insertRows("transactions", batch.stream().map(ClickHouseAnalyticsStore::transactionRow).toList());
     }
 
     @Override

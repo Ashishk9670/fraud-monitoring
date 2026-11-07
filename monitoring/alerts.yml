@@ -25,11 +25,13 @@ groups:
 
       # SLO: consumers keep up; lag stays below 1000 records.
       - alert: FraudConsumerLagHigh
-        expr: max by (topic) (kafka_consumer_fetch_manager_records_lag_max) > 1000
+        # Real group lag (end - committed offset). kafka_consumer_fetch_manager_records_lag_max only measures how far the client has
+        # FETCHED, so a consumer stuck in slow processing looks healthy; it reported 151 while the real lag was about 5,900.
+        expr: max by (group, topic) (fraud_consumer_group_lag) > 1000
         for: 5m
         labels: { severity: ticket, slo: consumer-lag }
         annotations:
-          summary: "Consumer lag on {{ $labels.topic }} is {{ $value }} records (SLO 1000)"
+          summary: "Consumer group {{ $labels.group }} is {{ $value }} records behind on {{ $labels.topic }} (SLO 1000)"
           runbook_url: https://github.com/Ashishk9670/fraud-monitoring/blob/main/docs/runbooks/FraudConsumerLagHigh.md
 
       - alert: FraudPublishFailures

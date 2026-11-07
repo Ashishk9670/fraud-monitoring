@@ -8,8 +8,10 @@ tests:
         values: '0+10x15'
       - series: 'http_server_requests_seconds_count{status="200"}'
         values: '0+90x15'
-      - series: 'kafka_consumer_fetch_manager_records_lag_max{topic="transactions"}'
+      - series: 'fraud_consumer_group_lag{group="analytics-sink",topic="transactions"}'
         values: '5000x15'
+      - series: 'fraud_consumer_group_lag{group="fraud-monitoring-streams",topic="transactions"}'
+        values: '0x15'
       - series: 'up{job="fraud-monitoring",instance="app:8080"}'
         values: '1 1 1 0x12'
     alert_rule_test:
@@ -23,9 +25,9 @@ tests:
       - eval_time: 12m
         alertname: FraudConsumerLagHigh
         exp_alerts:
-          - exp_labels: { severity: ticket, slo: consumer-lag, topic: transactions }
+          - exp_labels: { severity: ticket, slo: consumer-lag, group: analytics-sink, topic: transactions }
             exp_annotations:
-              summary: "Consumer lag on transactions is 5000 records (SLO 1000)"
+              summary: "Consumer group analytics-sink is 5000 records behind on transactions (SLO 1000)"
               runbook_url: https://github.com/Ashishk9670/fraud-monitoring/blob/main/docs/runbooks/FraudConsumerLagHigh.md
       - eval_time: 12m
         alertname: FraudAppDown

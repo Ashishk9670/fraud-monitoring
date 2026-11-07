@@ -52,10 +52,12 @@ function txn(account, location) {
 export default function () {
   const r = Math.random();
   let res;
-  if (r < 0.1) {
-    // a hopping account: many txns from several locations -> VELOCITY_MULTI_LOCATION
-    const acct = `lt-fraud-${__VU}-${Math.floor(__ITER / 20)}`;
-    res = http.post(`${BASE_URL}/api/transactions`, JSON.stringify(txn(acct, LOCATIONS[__ITER % LOCATIONS.length])), { headers });
+  if (r < 0.03) {
+    // a hopping account: 7 transactions within the window from 6 locations in one batch -> VELOCITY_MULTI_LOCATION
+    // (rule: more than 5 transactions in 1 minute from at least 2 locations). A fresh account per iteration, so each one alerts once.
+    const acct = `lt-fraud-${__VU}-${__ITER}`;
+    const batch = Array.from({ length: 7 }, (_, i) => txn(acct, LOCATIONS[i % LOCATIONS.length]));
+    res = http.post(`${BASE_URL}/api/transactions/batch`, JSON.stringify(batch), { headers });
   } else if (r < 0.3) {
     const batch = Array.from({ length: 20 }, () => txn(`lt-${Math.floor(Math.random() * 5000)}`, 'US'));
     res = http.post(`${BASE_URL}/api/transactions/batch`, JSON.stringify(batch), { headers });

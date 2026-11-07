@@ -263,7 +263,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (topic) (kafka_consumer_fetch_manager_records_lag_max)",
+          "expr": "max by (group, topic) (fraud_consumer_group_lag)",
           "legendFormat": "{{topic}}",
           "refId": "A"
         }

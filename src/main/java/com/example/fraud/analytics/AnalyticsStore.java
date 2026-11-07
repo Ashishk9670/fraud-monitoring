@@ -10,6 +10,11 @@ import java.util.List;
 public interface AnalyticsStore {
     void indexTransaction(Transaction t);
 
+    /** Indexes many transactions; backends that can batch (ClickHouse) override this to use a single round trip. */
+    default void indexTransactions(List<Transaction> batch) {
+        batch.forEach(this::indexTransaction);
+    }
+
     void indexAlert(FraudAlert a);
 
     /** Transactions with {@code from <= timestamp < to}, oldest first, at most {@code limit}. */
