@@ -42,7 +42,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       # ---- supply chain: SBOM, keyless signature, SBOM attestation (runs only on a release tag) ----
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: 21
